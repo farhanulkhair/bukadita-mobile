@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import '../models/user_model.dart';
+import 'cache_service.dart';
 
 /// Service untuk mengelola storage (token dan user data)
 /// Menggunakan FlutterSecureStorage untuk token (sensitive data)
@@ -82,6 +83,9 @@ class StorageService {
     final prefs = await SharedPreferences.getInstance();
     await prefs.remove(_userDataKey);
     await prefs.remove(_rememberMeKey);
+
+    // Clear API cache
+    await CacheService().clearAll();
   }
 
   /// Check apakah user sudah login

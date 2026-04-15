@@ -4,6 +4,8 @@ import '../../theme/theme.dart';
 import '../../layouts/app_layout.dart';
 import '../../services/module_service.dart';
 import '../../services/progress_service.dart';
+import '../../services/cache_service.dart';
+import '../../services/notification_service.dart';
 import '../../components/modul/module_card.dart';
 
 /// Modul Screen - Halaman daftar modul pembelajaran
@@ -23,8 +25,10 @@ class _ModulScreenState extends State<ModulScreen> {
   List<Map<String, dynamic>> _filteredModules = [];
   List<String> _categories = ['Semua Kategori'];
   String _selectedCategory = 'Semua Kategori';
+  String?
+  _selectedStatus; // null = semua, 'completed', 'in-progress', 'not-started'
   bool _isLoading = true;
-  String _greeting = 'Selamat malam';
+  String _greeting = '';
 
   // Stats
   int _completedCount = 0;
@@ -36,6 +40,20 @@ class _ModulScreenState extends State<ModulScreen> {
     super.initState();
     _setGreeting();
     _loadModules();
+    _backgroundRefreshIfStale();
+  }
+
+  Future<void> _onRefresh() async {
+    await _loadModules(forceRefresh: true);
+  }
+
+  Future<void> _backgroundRefreshIfStale() async {
+    final cache = CacheService();
+    final freshness = await cache.freshness('modules_list_p1_l100');
+    if (freshness == CacheFreshness.stale ||
+        freshness == CacheFreshness.expired) {
+      _loadModules(forceRefresh: true);
+    }
   }
 
   @override
@@ -57,13 +75,19 @@ class _ModulScreenState extends State<ModulScreen> {
     }
   }
 
-  Future<void> _loadModules() async {
-    setState(() => _isLoading = true);
+  Future<void> _loadModules({bool forceRefresh = false}) async {
+    if (_allModules.isEmpty) {
+      setState(() => _isLoading = true);
+    }
 
     try {
-      // Load modules dan progress secara bersamaan
-      final modulesResult = await _moduleService.getAllModules(limit: 100);
-      final progressResult = await _progressService.getModulesProgress();
+      final modulesResult = await _moduleService.getAllModules(
+        limit: 100,
+        forceRefresh: forceRefresh,
+      );
+      final progressResult = await _progressService.getModulesProgress(
+        forceRefresh: forceRefresh,
+      );
 
       if (modulesResult['success'] && mounted) {
         final items = modulesResult['data']['items'] as List;
@@ -78,79 +102,83 @@ class _ModulScreenState extends State<ModulScreen> {
           }
         }
 
+        // Process modules and get material counts
+        List<Map<String, dynamic>> processedModules = [];
+
+        for (var module in items) {
+          final moduleId = module['id'].toString();
+          final progress = progressMap[moduleId];
+          final progressPercent =
+              progress != null
+                  ? (progress['progress_percentage'] as num?)?.toDouble() ?? 0.0
+                  : 0.0;
+
+          // Determine status based on progress
+          String status = 'not-started';
+          if (progressPercent >= 100) {
+            status = 'completed';
+          } else if (progressPercent > 0) {
+            status = 'in-progress';
+          }
+
+          // Get actual materials count from API
+          int lessonsCount = 0;
+          try {
+            final materialsResult = await _moduleService.getMaterialsByModule(
+              moduleId,
+              limit: 1000,
+            );
+
+            if (materialsResult['success']) {
+              final materialsData = materialsResult['data'];
+              if (materialsData is Map && materialsData.containsKey('items')) {
+                lessonsCount = (materialsData['items'] as List).length;
+              } else if (materialsData is List) {
+                lessonsCount = materialsData.length;
+              }
+            }
+          } catch (e) {
+            // Fallback: try to get from module data
+            if (module['sub_materi_count'] != null) {
+              lessonsCount =
+                  module['sub_materi_count'] is int
+                      ? module['sub_materi_count']
+                      : int.tryParse(module['sub_materi_count'].toString()) ??
+                          0;
+            } else if (module['total_sub_materis'] != null) {
+              lessonsCount =
+                  module['total_sub_materis'] is int
+                      ? module['total_sub_materis']
+                      : int.tryParse(module['total_sub_materis'].toString()) ??
+                          0;
+            }
+          }
+
+          // Duration dari API, atau hitung dari jumlah sub materi
+          String duration =
+              module['duration_label'] ?? module['duration'] ?? '';
+
+          // Jika duration kosong, estimasi dari jumlah sub materi
+          // Asumsi: setiap sub materi = 1-2 minggu
+          if (duration.isEmpty && lessonsCount > 0) {
+            final weeks = lessonsCount * 2; // 2 minggu per sub materi
+            duration = '$weeks minggu';
+          }
+
+          processedModules.add({
+            'id': module['id'],
+            'title': module['title'],
+            'slug': module['slug'],
+            'category': module['category'] ?? 'Umum',
+            'lessons': lessonsCount,
+            'duration': duration.isNotEmpty ? duration : '4-6 minggu',
+            'progress': progressPercent,
+            'status': status,
+          });
+        }
+
         setState(() {
-          _allModules =
-              items.map((module) {
-                final moduleId = module['id'].toString();
-                final progress = progressMap[moduleId];
-                final progressPercent =
-                    progress != null
-                        ? (progress['progress_percentage'] as num?)
-                                ?.toDouble() ??
-                            0.0
-                        : 0.0;
-
-                // Determine status based on progress
-                String status = 'not-started';
-                if (progressPercent >= 100) {
-                  status = 'completed';
-                } else if (progressPercent > 0) {
-                  status = 'in-progress';
-                }
-
-                // Ambil jumlah sub materi dari berbagai field yang mungkin
-                // Coba dari field sub_materi_count (integer) atau total_sub_materis dulu
-                int lessonsCount = 0;
-
-                if (module['sub_materi_count'] != null) {
-                  lessonsCount =
-                      module['sub_materi_count'] is int
-                          ? module['sub_materi_count']
-                          : int.tryParse(
-                                module['sub_materi_count'].toString(),
-                              ) ??
-                              0;
-                } else if (module['total_sub_materis'] != null) {
-                  lessonsCount =
-                      module['total_sub_materis'] is int
-                          ? module['total_sub_materis']
-                          : int.tryParse(
-                                module['total_sub_materis'].toString(),
-                              ) ??
-                              0;
-                } else {
-                  // Coba dari array sub_materis
-                  final subMateris =
-                      module['sub_materis'] ?? module['subMateris'] ?? [];
-                  lessonsCount =
-                      subMateris is List
-                          ? subMateris.length
-                          : (module['lessons'] ?? 0);
-                }
-
-                // Duration dari API, atau hitung dari jumlah sub materi
-                String duration =
-                    module['duration_label'] ?? module['duration'] ?? '';
-
-                // Jika duration kosong, estimasi dari jumlah sub materi
-                // Asumsi: setiap sub materi = 1-2 minggu
-                if (duration.isEmpty && lessonsCount > 0) {
-                  final weeks = lessonsCount * 2; // 2 minggu per sub materi
-                  duration = '$weeks minggu';
-                }
-
-                return {
-                  'id': module['id'],
-                  'title': module['title'],
-                  'slug': module['slug'],
-                  'category': module['category'] ?? 'Umum',
-                  'lessons': lessonsCount,
-                  'duration': duration.isNotEmpty ? duration : '4-6 minggu',
-                  'progress': progressPercent,
-                  'status': status,
-                };
-              }).toList();
-
+          _allModules = processedModules;
           _filteredModules = List.from(_allModules);
           _calculateStats();
           _extractCategories();
@@ -191,18 +219,45 @@ class _ModulScreenState extends State<ModulScreen> {
   void _filterModules(String category) {
     setState(() {
       _selectedCategory = category;
-      if (category == 'Semua Kategori') {
-        _filteredModules = List.from(_allModules);
+      _applyFilters();
+    });
+  }
+
+  void _filterByStatus(String? status) {
+    setState(() {
+      // Toggle: jika klik yang sama, reset ke null (tampilkan semua)
+      if (_selectedStatus == status) {
+        _selectedStatus = null;
       } else {
-        _filteredModules =
-            _allModules
-                .where(
-                  (m) =>
-                      m['category']?.toString().toLowerCase() ==
-                      category.toLowerCase(),
-                )
-                .toList();
+        _selectedStatus = status;
       }
+      _applyFilters();
+    });
+  }
+
+  void _applyFilters() {
+    // Start dengan semua modules
+    List<Map<String, dynamic>> filtered = List.from(_allModules);
+
+    // Filter by category
+    if (_selectedCategory != 'Semua Kategori') {
+      filtered =
+          filtered
+              .where(
+                (m) =>
+                    m['category']?.toString().toLowerCase() ==
+                    _selectedCategory.toLowerCase(),
+              )
+              .toList();
+    }
+
+    // Filter by status
+    if (_selectedStatus != null) {
+      filtered = filtered.where((m) => m['status'] == _selectedStatus).toList();
+    }
+
+    setState(() {
+      _filteredModules = filtered;
       _applySearch();
     });
   }
@@ -210,9 +265,6 @@ class _ModulScreenState extends State<ModulScreen> {
   void _applySearch() {
     final query = _searchController.text.toLowerCase();
     if (query.isEmpty) {
-      if (_selectedCategory == 'Semua Kategori') {
-        _filteredModules = List.from(_allModules);
-      }
       return;
     }
 
@@ -292,19 +344,56 @@ class _ModulScreenState extends State<ModulScreen> {
             ],
           ),
           actions: [
-            IconButton(
-              icon: Icon(
-                Icons.notifications_outlined,
-                color: AppColors.primary,
-              ),
-              onPressed: () {
-                Navigator.pushNamed(context, '/notifications');
+            ValueListenableBuilder<int>(
+              valueListenable: NotificationService().unreadCount,
+              builder: (context, count, _) {
+                return IconButton(
+                  icon: Stack(
+                    clipBehavior: Clip.none,
+                    children: [
+                      Icon(
+                        Icons.notifications_outlined,
+                        color: AppColors.primary,
+                      ),
+                      if (count > 0)
+                        Positioned(
+                          right: -4,
+                          top: -4,
+                          child: Container(
+                            padding: const EdgeInsets.all(2),
+                            decoration: BoxDecoration(
+                              color: Colors.red,
+                              borderRadius: BorderRadius.circular(10),
+                              border: Border.all(color: AppColors.white, width: 1.5),
+                            ),
+                            constraints: const BoxConstraints(minWidth: 18, minHeight: 18),
+                            child: Text(
+                              count > 99 ? '99+' : '$count',
+                              style: const TextStyle(
+                                color: Colors.white,
+                                fontSize: 10,
+                                fontWeight: FontWeight.bold,
+                              ),
+                              textAlign: TextAlign.center,
+                            ),
+                          ),
+                        ),
+                    ],
+                  ),
+                  onPressed: () async {
+                    await Navigator.pushNamed(context, '/notifications');
+                    NotificationService().refreshCount();
+                  },
+                );
               },
             ),
           ],
         ),
-        body: CustomScrollView(
-          slivers: [
+        body: RefreshIndicator(
+          onRefresh: _onRefresh,
+          color: AppColors.primary,
+          child: CustomScrollView(
+            slivers: [
             // Date and Time Card
             SliverToBoxAdapter(
               child: Container(
@@ -336,19 +425,19 @@ class _ModulScreenState extends State<ModulScreen> {
                       child: Row(
                         children: [
                           Container(
-                            padding: const EdgeInsets.all(14),
+                            padding: const EdgeInsets.all(12),
                             decoration: BoxDecoration(
                               color: AppColors.white.withOpacity(0.25),
                               borderRadius: BorderRadius.circular(16),
                               border: Border.all(
                                 color: AppColors.white.withOpacity(0.3),
-                                width: 1.5,
+                                width: 1.2,
                               ),
                             ),
                             child: Icon(
                               Icons.calendar_today_rounded,
                               color: AppColors.white,
-                              size: 28,
+                              size: 22,
                             ),
                           ),
                           const SizedBox(width: 18),
@@ -370,7 +459,7 @@ class _ModulScreenState extends State<ModulScreen> {
                                   style: AppTextStyles.headingSmall.copyWith(
                                     color: AppColors.white,
                                     fontWeight: FontWeight.bold,
-                                    fontSize: 17,
+                                    fontSize: 15,
                                   ),
                                 ),
                               ],
@@ -400,13 +489,13 @@ class _ModulScreenState extends State<ModulScreen> {
             // Content
             SliverToBoxAdapter(
               child: Padding(
-                padding: const EdgeInsets.all(20),
+                padding: const EdgeInsets.all(16),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     // Header
                     Container(
-                      padding: const EdgeInsets.all(20),
+                      padding: const EdgeInsets.all(16),
                       decoration: BoxDecoration(
                         gradient: LinearGradient(
                           colors: [
@@ -414,7 +503,7 @@ class _ModulScreenState extends State<ModulScreen> {
                             AppColors.secondary.withOpacity(0.08),
                           ],
                         ),
-                        borderRadius: BorderRadius.circular(20),
+                        borderRadius: BorderRadius.circular(16),
                         border: Border.all(
                           color: AppColors.primary.withOpacity(0.2),
                           width: 1,
@@ -423,7 +512,7 @@ class _ModulScreenState extends State<ModulScreen> {
                       child: Row(
                         children: [
                           Container(
-                            padding: const EdgeInsets.all(14),
+                            padding: const EdgeInsets.all(10),
                             decoration: BoxDecoration(
                               gradient: LinearGradient(
                                 colors: [
@@ -431,22 +520,22 @@ class _ModulScreenState extends State<ModulScreen> {
                                   AppColors.secondary,
                                 ],
                               ),
-                              borderRadius: BorderRadius.circular(16),
+                              borderRadius: BorderRadius.circular(12),
                               boxShadow: [
                                 BoxShadow(
                                   color: AppColors.primary.withOpacity(0.3),
-                                  blurRadius: 8,
-                                  offset: const Offset(0, 4),
+                                  blurRadius: 6,
+                                  offset: const Offset(0, 3),
                                 ),
                               ],
                             ),
                             child: Icon(
                               Icons.school_rounded,
                               color: AppColors.white,
-                              size: 28,
+                              size: 22,
                             ),
                           ),
-                          const SizedBox(width: 16),
+                          const SizedBox(width: 12),
                           Expanded(
                             child: Column(
                               crossAxisAlignment: CrossAxisAlignment.start,
@@ -454,16 +543,16 @@ class _ModulScreenState extends State<ModulScreen> {
                                 Text(
                                   'Semua Modul',
                                   style: AppTextStyles.heading.copyWith(
-                                    fontSize: 22,
+                                    fontSize: 18,
                                     fontWeight: FontWeight.bold,
                                   ),
                                 ),
-                                const SizedBox(height: 4),
+                                const SizedBox(height: 2),
                                 Text(
                                   'Total ${_allModules.length} modul pembelajaran',
                                   style: AppTextStyles.labelMedium.copyWith(
                                     color: AppColors.gray600,
-                                    fontSize: 13,
+                                    fontSize: 12,
                                   ),
                                 ),
                               ],
@@ -473,7 +562,7 @@ class _ModulScreenState extends State<ModulScreen> {
                       ),
                     ),
 
-                    const SizedBox(height: 24),
+                    const SizedBox(height: 18),
 
                     // Stats Cards
                     Row(
@@ -482,18 +571,21 @@ class _ModulScreenState extends State<ModulScreen> {
                           '$_completedCount',
                           'Modul\nSelesai',
                           AppColors.green600,
+                          'completed',
                         ),
                         const SizedBox(width: 12),
                         _buildStatCard(
                           '$_inProgressCount',
                           'Sedang\nBelajar',
                           AppColors.blue600,
+                          'in-progress',
                         ),
                         const SizedBox(width: 12),
                         _buildStatCard(
                           '$_notStartedCount',
                           'Belum\nDimulai',
                           AppColors.red600,
+                          'not-started',
                         ),
                       ],
                     ),
@@ -686,60 +778,81 @@ class _ModulScreenState extends State<ModulScreen> {
             ),
           ],
         ),
+        ),
       ),
     );
   }
 
-  Widget _buildStatCard(String value, String label, Color color) {
+  Widget _buildStatCard(
+    String value,
+    String label,
+    Color color,
+    String status,
+  ) {
+    final isSelected = _selectedStatus == status;
     return Expanded(
-      child: Container(
-        padding: const EdgeInsets.all(20),
-        decoration: BoxDecoration(
-          gradient: LinearGradient(
-            colors: [color.withOpacity(0.12), color.withOpacity(0.06)],
-            begin: Alignment.topLeft,
-            end: Alignment.bottomRight,
-          ),
-          borderRadius: BorderRadius.circular(20),
-          border: Border.all(color: color.withOpacity(0.25), width: 1.5),
-          boxShadow: [
-            BoxShadow(
-              color: color.withOpacity(0.15),
-              blurRadius: 12,
-              offset: const Offset(0, 4),
+      child: GestureDetector(
+        onTap: () => _filterByStatus(status),
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 200),
+          padding: const EdgeInsets.all(14),
+          decoration: BoxDecoration(
+            gradient: LinearGradient(
+              colors:
+                  isSelected
+                      ? [color.withOpacity(0.25), color.withOpacity(0.15)]
+                      : [color.withOpacity(0.12), color.withOpacity(0.06)],
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
             ),
-          ],
-        ),
-        child: Column(
-          children: [
-            Container(
-              padding: const EdgeInsets.all(10),
-              decoration: BoxDecoration(
-                color: color.withOpacity(0.15),
-                shape: BoxShape.circle,
+            borderRadius: BorderRadius.circular(14),
+            border: Border.all(
+              color: isSelected ? color : color.withOpacity(0.25),
+              width: isSelected ? 2.5 : 1.5,
+            ),
+            boxShadow: [
+              BoxShadow(
+                color: color.withOpacity(isSelected ? 0.25 : 0.15),
+                blurRadius: isSelected ? 12 : 8,
+                offset: Offset(0, isSelected ? 4 : 3),
               ),
-              child: Text(
-                value,
-                style: AppTextStyles.headingLarge.copyWith(
-                  color: color,
-                  fontWeight: FontWeight.bold,
-                  fontSize: 26,
+            ],
+          ),
+          child: Column(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                  color: color.withOpacity(isSelected ? 0.25 : 0.15),
+                  shape: BoxShape.circle,
+                ),
+                child: Text(
+                  value,
+                  style: AppTextStyles.headingLarge.copyWith(
+                    color: color,
+                    fontWeight: FontWeight.bold,
+                    fontSize: 20,
+                  ),
                 ),
               ),
-            ),
-            const SizedBox(height: 10),
-            Text(
-              label,
-              style: AppTextStyles.labelSmall.copyWith(
-                color: color,
-                fontWeight: FontWeight.w700,
-                fontSize: 11,
-                letterSpacing: 0.3,
+              const SizedBox(height: 8),
+              Text(
+                label,
+                style: AppTextStyles.labelSmall.copyWith(
+                  color: color,
+                  fontWeight: isSelected ? FontWeight.w800 : FontWeight.w700,
+                  fontSize: 10,
+                  letterSpacing: 0.3,
+                ),
+                textAlign: TextAlign.center,
+                maxLines: 2,
               ),
-              textAlign: TextAlign.center,
-              maxLines: 2,
-            ),
-          ],
+              if (isSelected) ...[
+                const SizedBox(height: 4),
+                Icon(Icons.check_circle, size: 14, color: color),
+              ],
+            ],
+          ),
         ),
       ),
     );
@@ -751,7 +864,7 @@ class _ModulScreenState extends State<ModulScreen> {
       onTap: () => _filterModules(label),
       child: AnimatedContainer(
         duration: const Duration(milliseconds: 200),
-        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
         decoration: BoxDecoration(
           gradient:
               isSelected
@@ -760,7 +873,7 @@ class _ModulScreenState extends State<ModulScreen> {
                   )
                   : null,
           color: isSelected ? null : AppColors.white,
-          borderRadius: BorderRadius.circular(28),
+          borderRadius: BorderRadius.circular(18),
           border: Border.all(
             color:
                 isSelected
@@ -773,14 +886,14 @@ class _ModulScreenState extends State<ModulScreen> {
                   ? [
                     BoxShadow(
                       color: AppColors.primary.withOpacity(0.3),
-                      blurRadius: 12,
-                      offset: const Offset(0, 4),
+                      blurRadius: 8,
+                      offset: const Offset(0, 3),
                     ),
                   ]
                   : [
                     BoxShadow(
                       color: Colors.black.withOpacity(0.04),
-                      blurRadius: 6,
+                      blurRadius: 4,
                       offset: const Offset(0, 2),
                     ),
                   ],
@@ -790,7 +903,7 @@ class _ModulScreenState extends State<ModulScreen> {
           style: AppTextStyles.labelMedium.copyWith(
             color: isSelected ? AppColors.white : AppColors.gray700,
             fontWeight: isSelected ? FontWeight.w700 : FontWeight.w600,
-            fontSize: 13,
+            fontSize: 12,
           ),
         ),
       ),

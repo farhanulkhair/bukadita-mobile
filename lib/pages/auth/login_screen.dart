@@ -7,6 +7,7 @@ import '../../widgets/error_alert.dart';
 import '../../models/login_request.dart';
 import '../../services/auth_service.dart';
 import '../../utils/validators.dart';
+import '../../utils/error_helper.dart';
 
 /// Halaman Login BukaDita
 /// Halaman untuk login dengan email/phone & password
@@ -86,12 +87,14 @@ class _LoginScreenState extends State<LoginScreen> {
       } else {
         // Login gagal
         setState(() {
-          _generalError = response.error ?? 'Login gagal, silakan coba lagi';
+          _generalError = response.error ??
+              response.message ??
+              'Login gagal, silakan coba lagi';
         });
       }
     } catch (e) {
       setState(() {
-        _generalError = e.toString();
+        _generalError = friendlyErrorMessage(e);
       });
     } finally {
       if (mounted) {

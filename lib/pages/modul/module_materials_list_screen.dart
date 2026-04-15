@@ -1,9 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 import '../../theme/theme.dart';
+import '../../components/note/notes_fab.dart';
 import '../../services/module_service.dart';
 import '../../services/progress_service.dart';
 import '../../services/quiz_service.dart';
+import '../../services/cache_service.dart';
 import 'material_poin_detail_screen.dart';
 
 /// Module Materials List Screen - Design Modern seperti gambar referensi
@@ -24,38 +26,65 @@ class _ModuleMaterialsListScreenState extends State<ModuleMaterialsListScreen> {
   List<Map<String, dynamic>> _materials = [];
   Map<String, bool> _expandedMaterials = {};
   Map<String, dynamic> _progressData = {};
+  Map<String, Set<String>> _readPoinsPerMaterial = {};
   String _moduleTitle = '';
   String _moduleId = '';
   int _completedCount = 0;
   int _totalCount = 0;
 
+  bool _didInit = false;
+
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
+    if (_didInit) return;
     final args =
         ModalRoute.of(context)?.settings.arguments as Map<String, dynamic>?;
     if (args != null) {
+      _didInit = true;
       _moduleId = args['moduleId'] ?? '';
       _moduleTitle = args['moduleTitle'] ?? 'Daftar Modul';
       _loadMaterials();
+      _backgroundRefreshIfStale();
     }
   }
 
-  Future<void> _loadMaterials() async {
-    setState(() => _isLoading = true);
+  Future<void> _backgroundRefreshIfStale() async {
+    final cache = CacheService();
+    final freshness = await cache.freshness('materials_$_moduleId');
+    if (freshness == CacheFreshness.stale ||
+        freshness == CacheFreshness.expired) {
+      _loadMaterials(forceRefresh: true);
+    }
+  }
+
+  Future<void> _loadMaterials({bool forceRefresh = false}) async {
+    final isFirstLoad = _materials.isEmpty;
+    if (isFirstLoad) {
+      setState(() => _isLoading = true);
+    }
+
+    // Only clear in-memory detail cache on force refresh
+    if (forceRefresh) {
+      MaterialPoinDetailScreen.clearAllCache();
+    }
 
     try {
-      // Clear material detail cache to ensure fresh progress data
-      MaterialPoinDetailScreen.clearAllCache();
+      // Phase 1: Load materials list + progress in parallel
+      final results = await Future.wait([
+        _moduleService.getMaterialsByModule(
+          _moduleId,
+          limit: 1000,
+          forceRefresh: forceRefresh,
+        ),
+        _progressService.getModuleProgress(
+          _moduleId,
+          forceRefresh: forceRefresh,
+        ),
+      ]);
 
-      // Load materials dan progress
-      final result = await _moduleService.getMaterialsByModule(
-        _moduleId,
-        limit: 1000,
-      );
-      final progressResult = await _progressService.getModuleProgress(
-        _moduleId,
-      );
+      final result = results[0];
+      final progressResult = results[1];
 
       if (result['success'] && mounted) {
         final responseData = result['data'];
@@ -67,14 +96,11 @@ class _ModuleMaterialsListScreenState extends State<ModuleMaterialsListScreen> {
           materialsList = responseData;
         }
 
-        // Parse progress data
         _progressData.clear();
         if (progressResult['success']) {
-          // API returns 'sub_materis' not 'materials'
           final progressMaterials =
               progressResult['data']['sub_materis'] as List? ?? [];
           for (var pm in progressMaterials) {
-            // Use 'id' not 'material_id' based on API response
             final matId = (pm['id'] ?? pm['material_id']).toString();
             _progressData[matId] = pm;
           }
@@ -83,56 +109,147 @@ class _ModuleMaterialsListScreenState extends State<ModuleMaterialsListScreen> {
         final materials =
             materialsList.map((m) => m as Map<String, dynamic>).toList();
 
-        // Load poin details and quiz for each material
+        // Phase 2: Load all details + quizzes + completed poins in PARALLEL
         _completedCount = 0;
+        final detailFutures = <Future<Map<String, dynamic>>>[];
+        final quizFutures = <Future<Map<String, dynamic>>>[];
+        final completedPoinsFutures = <Future<Map<String, dynamic>>>[];
+        final localPoinsFutures = <Future<Set<String>>>[];
+        final materialIds = <String>[];
+
         for (var material in materials) {
           final materialId = material['id']?.toString();
           if (materialId != null) {
-            // Load poin details
-            final detailResult = await _moduleService.getMaterialDetail(
-              materialId,
+            materialIds.add(materialId);
+            detailFutures.add(
+              _moduleService.getMaterialDetail(
+                materialId,
+                forceRefresh: forceRefresh,
+              ),
             );
-            if (detailResult['success']) {
-              final poinDetails =
-                  detailResult['data']['poinDetails'] ??
-                  detailResult['data']['poin_details'] ??
-                  [];
-              material['poin_details'] = poinDetails;
-            }
-
-            // Load quiz data
-            final quizResult = await _quizService.getMaterialQuizzes(
-              materialId,
+            quizFutures.add(
+              _quizService.getMaterialQuizzes(materialId),
             );
-            if (quizResult['success'] && quizResult['data'] != null) {
-              final quizzes = quizResult['data'] as List;
-              material['quizzes'] = quizzes;
-            } else {
-              material['quizzes'] = [];
-            }
+            completedPoinsFutures.add(
+              _progressService.getCompletedPoins(
+                materialId,
+                forceRefresh: forceRefresh,
+              ),
+            );
+            localPoinsFutures.add(
+              _progressService.getLocallyReadPoins(materialId),
+            );
+          }
+        }
 
-            // Check completion from progress data
-            final progressMat = _progressData[materialId];
-            if (progressMat != null) {
-              final completed = progressMat['is_completed'] ?? false;
-              material['is_completed'] = completed;
-              if (completed) _completedCount++;
-            } else {
-              material['is_completed'] = false;
+        final allDetails = await Future.wait(detailFutures);
+        final allQuizzes = await Future.wait(quizFutures);
+        final allCompletedPoins = await Future.wait(completedPoinsFutures);
+        final allLocalPoins = await Future.wait(localPoinsFutures);
+
+        // Merge completed poins (local + API) per material
+        _readPoinsPerMaterial.clear();
+        for (var i = 0; i < materialIds.length; i++) {
+          Set<String> completed = {...allLocalPoins[i]};
+          if (allCompletedPoins[i]['success']) {
+            final apiPoins = allCompletedPoins[i]['data'] as List? ?? [];
+            for (var p in apiPoins) {
+              final pid = (p['poin_id'] ?? p['id'])?.toString() ?? '';
+              if (pid.isNotEmpty) completed.add(pid);
             }
+          }
+          _readPoinsPerMaterial[materialIds[i]] = completed;
+        }
+
+        for (var i = 0; i < materialIds.length; i++) {
+          final material = materials.firstWhere(
+            (m) => m['id']?.toString() == materialIds[i],
+            orElse: () => <String, dynamic>{},
+          );
+          if (material.isEmpty) continue;
+
+          // Detail
+          if (allDetails[i]['success']) {
+            final poinDetails =
+                allDetails[i]['data']['poinDetails'] ??
+                allDetails[i]['data']['poin_details'] ??
+                [];
+            material['poin_details'] = poinDetails;
+          }
+
+          // Quiz
+          if (allQuizzes[i]['success'] && allQuizzes[i]['data'] != null) {
+            material['quizzes'] = allQuizzes[i]['data'] as List;
+          } else {
+            material['quizzes'] = [];
+          }
+
+          // Completion
+          final progressMat = _progressData[materialIds[i]];
+          if (progressMat != null) {
+            final completed = progressMat['is_completed'] ?? false;
+            material['is_completed'] = completed;
+            if (completed) _completedCount++;
+          } else {
+            material['is_completed'] = false;
           }
         }
 
         _totalCount = materials.length;
 
-        setState(() {
-          _materials = materials;
-          _isLoading = false;
-        });
+        if (mounted) {
+          setState(() {
+            _materials = materials;
+            _isLoading = false;
+          });
+        }
+      } else if (mounted) {
+        setState(() => _isLoading = false);
       }
     } catch (e) {
-      setState(() => _isLoading = false);
+      if (mounted) {
+        setState(() => _isLoading = false);
+      }
     }
+  }
+
+  void _navigateToNextMaterial(String currentMaterialId) {
+    final currentIndex = _materials.indexWhere(
+      (m) => m['id']?.toString() == currentMaterialId,
+    );
+    if (currentIndex < 0 || currentIndex >= _materials.length - 1) {
+      // No next material, just show success
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Selamat! Semua materi dalam modul ini telah selesai!'),
+            backgroundColor: AppColors.green600,
+            duration: Duration(seconds: 3),
+          ),
+        );
+      }
+      return;
+    }
+
+    final nextMaterial = _materials[currentIndex + 1];
+    final nextMaterialId = nextMaterial['id']?.toString() ?? '';
+
+    Navigator.pushNamed(
+      context,
+      '/material-poin-detail',
+      arguments: {
+        'materialId': nextMaterialId,
+        'materialTitle': nextMaterial['title'] ?? '',
+        'moduleTitle': _moduleTitle,
+        'moduleId': _moduleId,
+      },
+    ).then((result) async {
+      await _loadMaterials();
+      if (result is Map && result['navigateToNextMaterial'] == true) {
+        final id = result['currentMaterialId']?.toString() ?? '';
+        _navigateToNextMaterial(id);
+      }
+    });
   }
 
   @override
@@ -174,42 +291,43 @@ class _ModuleMaterialsListScreenState extends State<ModuleMaterialsListScreen> {
                 end: Alignment.bottomRight,
               ),
               borderRadius: const BorderRadius.only(
-                bottomLeft: Radius.circular(24),
-                bottomRight: Radius.circular(24),
+                bottomLeft: Radius.circular(20),
+                bottomRight: Radius.circular(20),
               ),
             ),
             child: Column(
               children: [
                 Padding(
-                  padding: const EdgeInsets.fromLTRB(24, 20, 24, 24),
+                  padding: const EdgeInsets.fromLTRB(18, 16, 18, 18),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Row(
                         children: [
                           Container(
-                            padding: const EdgeInsets.all(10),
+                            padding: const EdgeInsets.all(8),
                             decoration: BoxDecoration(
                               color: AppColors.white.withOpacity(0.2),
-                              borderRadius: BorderRadius.circular(12),
+                              borderRadius: BorderRadius.circular(10),
                             ),
                             child: Icon(
                               LucideIcons.bookOpen,
                               color: AppColors.white,
-                              size: 24,
+                              size: 20,
                             ),
                           ),
-                          const SizedBox(width: 12),
+                          const SizedBox(width: 10),
                           Text(
                             'Daftar Materi',
                             style: AppTextStyles.headingMedium.copyWith(
                               color: AppColors.white,
                               fontWeight: FontWeight.bold,
+                              fontSize: 18,
                             ),
                           ),
                         ],
                       ),
-                      const SizedBox(height: 20),
+                      const SizedBox(height: 14),
                       // Progress bar
                       Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
@@ -222,6 +340,7 @@ class _ModuleMaterialsListScreenState extends State<ModuleMaterialsListScreen> {
                                 style: AppTextStyles.labelMedium.copyWith(
                                   color: AppColors.white.withOpacity(0.9),
                                   fontWeight: FontWeight.w500,
+                                  fontSize: 12,
                                 ),
                               ),
                               Row(
@@ -231,38 +350,39 @@ class _ModuleMaterialsListScreenState extends State<ModuleMaterialsListScreen> {
                                     style: AppTextStyles.headingSmall.copyWith(
                                       color: AppColors.white,
                                       fontWeight: FontWeight.bold,
+                                      fontSize: 16,
                                     ),
                                   ),
                                   if (progress == 100) ...[
-                                    const SizedBox(width: 8),
+                                    const SizedBox(width: 6),
                                     Icon(
                                       Icons.check_circle,
                                       color: AppColors.white,
-                                      size: 20,
+                                      size: 18,
                                     ),
                                   ],
                                 ],
                               ),
                             ],
                           ),
-                          const SizedBox(height: 12),
+                          const SizedBox(height: 8),
                           ClipRRect(
-                            borderRadius: BorderRadius.circular(12),
+                            borderRadius: BorderRadius.circular(10),
                             child: LinearProgressIndicator(
                               value: progress / 100,
                               backgroundColor: AppColors.white.withOpacity(0.2),
                               valueColor: AlwaysStoppedAnimation<Color>(
                                 AppColors.white,
                               ),
-                              minHeight: 10,
+                              minHeight: 8,
                             ),
                           ),
-                          const SizedBox(height: 8),
+                          const SizedBox(height: 6),
                           Text(
                             '$_completedCount dari $_totalCount materi selesai',
                             style: AppTextStyles.bodySmall.copyWith(
                               color: AppColors.white.withOpacity(0.85),
-                              fontSize: 13,
+                              fontSize: 12,
                             ),
                           ),
                         ],
@@ -274,7 +394,6 @@ class _ModuleMaterialsListScreenState extends State<ModuleMaterialsListScreen> {
             ),
           ),
 
-          // Materials list
           Expanded(
             child:
                 _isLoading
@@ -283,37 +402,58 @@ class _ModuleMaterialsListScreenState extends State<ModuleMaterialsListScreen> {
                         color: AppColors.primary,
                       ),
                     )
-                    : _materials.isEmpty
-                    ? Center(
-                      child: Column(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          Icon(
-                            LucideIcons.inbox,
-                            size: 64,
-                            color: AppColors.gray400,
-                          ),
-                          const SizedBox(height: 16),
-                          Text(
-                            'Belum ada materi tersedia',
-                            style: AppTextStyles.bodyMedium.copyWith(
-                              color: AppColors.gray600,
-                            ),
-                          ),
-                        ],
-                      ),
-                    )
-                    : ListView.builder(
-                      padding: const EdgeInsets.symmetric(vertical: 16),
-                      itemCount: _materials.length,
-                      itemBuilder: (context, index) {
-                        final material = _materials[index];
-                        return _buildMaterialCard(material, index);
-                      },
+                    : RefreshIndicator(
+                      onRefresh: () => _loadMaterials(forceRefresh: true),
+                      color: AppColors.primary,
+                      child:
+                          _materials.isEmpty
+                              ? ListView(
+                                physics: const AlwaysScrollableScrollPhysics(),
+                                children: [
+                                  SizedBox(
+                                    height:
+                                        MediaQuery.of(context).size.height *
+                                        0.4,
+                                    child: Center(
+                                      child: Column(
+                                        mainAxisAlignment:
+                                            MainAxisAlignment.center,
+                                        children: [
+                                          Icon(
+                                            LucideIcons.inbox,
+                                            size: 64,
+                                            color: AppColors.gray400,
+                                          ),
+                                          const SizedBox(height: 16),
+                                          Text(
+                                            'Belum ada materi tersedia',
+                                            style: AppTextStyles.bodyMedium
+                                                .copyWith(
+                                                  color: AppColors.gray600,
+                                                ),
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+                                  ),
+                                ],
+                              )
+                              : ListView.builder(
+                                physics: const AlwaysScrollableScrollPhysics(),
+                                padding: const EdgeInsets.symmetric(
+                                  vertical: 16,
+                                ),
+                                itemCount: _materials.length,
+                                itemBuilder: (context, index) {
+                                  final material = _materials[index];
+                                  return _buildMaterialCard(material, index);
+                                },
+                              ),
                     ),
           ),
         ],
       ),
+      floatingActionButton: const NotesFab(),
     );
   }
 
@@ -412,7 +552,7 @@ class _ModuleMaterialsListScreenState extends State<ModuleMaterialsListScreen> {
                       children: [
                         Text(
                           material['title'] ?? '',
-                          style: AppTextStyles.bodyLarge.copyWith(
+                          style: AppTextStyles.bodyMedium.copyWith(
                             color:
                                 isLocked
                                     ? AppColors.gray500
@@ -470,9 +610,7 @@ class _ModuleMaterialsListScreenState extends State<ModuleMaterialsListScreen> {
                             ? LucideIcons.chevronUp
                             : LucideIcons.chevronDown,
                         color:
-                            isExpanded
-                                ? AppColors.primary
-                                : AppColors.gray600,
+                            isExpanded ? AppColors.primary : AppColors.gray600,
                         size: 20,
                       ),
                     ),
@@ -515,19 +653,21 @@ class _ModuleMaterialsListScreenState extends State<ModuleMaterialsListScreen> {
   ) {
     final poinId = poin['id']?.toString() ?? '';
 
-    // Logic sederhana: Jika material sudah completed, maka semua poinnya juga completed
     final materialProgressData = _progressData[materialId];
     bool isCompleted = false;
 
     if (materialProgressData != null) {
-      // Jika material is_completed = true, berarti semua poinnya sudah selesai
       final materialCompleted = materialProgressData['is_completed'] ?? false;
       final progressPercent = materialProgressData['progress_percent'] ?? 0;
-
-      // Material completed = semua poin completed
       if (materialCompleted && progressPercent == 100) {
         isCompleted = true;
       }
+    }
+
+    // Check individual poin read status (local + API)
+    if (!isCompleted && poinId.isNotEmpty) {
+      isCompleted =
+          _readPoinsPerMaterial[materialId]?.contains(poinId) ?? false;
     }
 
     return InkWell(
@@ -541,7 +681,14 @@ class _ModuleMaterialsListScreenState extends State<ModuleMaterialsListScreen> {
             'moduleTitle': _moduleTitle,
             'moduleId': _moduleId,
           },
-        ).then((_) => _loadMaterials()); // Reload after returning
+        ).then((result) async {
+          await _loadMaterials();
+          if (result is Map && result['navigateToNextMaterial'] == true) {
+            final currentId =
+                result['currentMaterialId']?.toString() ?? '';
+            _navigateToNextMaterial(currentId);
+          }
+        });
       },
       borderRadius: BorderRadius.circular(12),
       child: Container(
@@ -577,13 +724,8 @@ class _ModuleMaterialsListScreenState extends State<ModuleMaterialsListScreen> {
                 borderRadius: BorderRadius.circular(20),
               ),
               child: Icon(
-                isCompleted
-                    ? Icons.check_circle
-                    : LucideIcons.circle,
-                color:
-                    isCompleted
-                        ? AppColors.green600
-                        : AppColors.gray400,
+                isCompleted ? Icons.check_circle : LucideIcons.circle,
+                color: isCompleted ? AppColors.green600 : AppColors.gray400,
                 size: 20,
               ),
             ),
@@ -600,11 +742,7 @@ class _ModuleMaterialsListScreenState extends State<ModuleMaterialsListScreen> {
                 overflow: TextOverflow.ellipsis,
               ),
             ),
-            Icon(
-              LucideIcons.chevronRight,
-              size: 18,
-              color: AppColors.gray400,
-            ),
+            Icon(LucideIcons.chevronRight, size: 18, color: AppColors.gray400),
           ],
         ),
       ),
@@ -683,16 +821,11 @@ class _ModuleMaterialsListScreenState extends State<ModuleMaterialsListScreen> {
             Container(
               padding: const EdgeInsets.all(8),
               decoration: BoxDecoration(
-                color:
-                    isCompleted
-                        ? AppColors.green600
-                        : AppColors.primary,
+                color: isCompleted ? AppColors.green600 : AppColors.primary,
                 borderRadius: BorderRadius.circular(10),
               ),
               child: Icon(
-                isCompleted
-                    ? Icons.check_circle
-                    : Icons.help_outline,
+                isCompleted ? Icons.check_circle : Icons.help_outline,
                 color: AppColors.white,
                 size: 20,
               ),

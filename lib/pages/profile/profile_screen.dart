@@ -6,6 +6,7 @@ import '../../layouts/app_layout.dart';
 import '../../services/storage_service.dart';
 import '../../services/profile_service.dart';
 import '../../models/user_model.dart';
+import '../../utils/error_helper.dart';
 
 /// Profile Screen - Halaman profil user dengan navigasi bottom bar
 class ProfileScreen extends StatefulWidget {
@@ -45,6 +46,13 @@ class _ProfileScreenState extends State<ProfileScreen> {
         });
       }
     }
+  }
+
+  Future<void> _refreshProfile() async {
+    try {
+      await _profileService.getCurrentUserProfile();
+      await _loadUserData();
+    } catch (_) {}
   }
 
   Future<void> _handleLogout() async {
@@ -165,7 +173,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
-              content: Text('Gagal upload foto: $e'),
+              content: Text(friendlyErrorMessage(e)),
               backgroundColor: AppColors.red600,
             ),
           );
@@ -205,7 +213,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('Gagal update nama: $e'),
+            content: Text(friendlyErrorMessage(e)),
             backgroundColor: AppColors.red600,
           ),
         );
@@ -228,39 +236,41 @@ class _ProfileScreenState extends State<ProfileScreen> {
         body:
             _isLoading
                 ? const Center(child: CircularProgressIndicator())
-                : _buildProfileContent(),
+                : RefreshIndicator(
+                  onRefresh: _refreshProfile,
+                  color: AppColors.primary,
+                  child: _buildProfileContent(),
+                ),
       ),
     );
   }
 
   Widget _buildProfileContent() {
     return SingleChildScrollView(
+      physics: const AlwaysScrollableScrollPhysics(),
       child: Column(
         children: [
           // Header dengan foto profil
           _buildProfileHeader(),
 
-          const SizedBox(height: 24),
+          const SizedBox(height: 18),
 
           // Menu items
           Container(
-            margin: const EdgeInsets.symmetric(horizontal: 20),
+            margin: const EdgeInsets.symmetric(horizontal: 16),
             decoration: BoxDecoration(
               color: AppColors.white,
-              borderRadius: BorderRadius.circular(20),
-              border: Border.all(
-                color: AppColors.gray200,
-                width: 1.5,
-              ),
+              borderRadius: BorderRadius.circular(16),
+              border: Border.all(color: AppColors.gray200, width: 1.5),
               boxShadow: [
                 BoxShadow(
                   color: Colors.black.withOpacity(0.06),
-                  blurRadius: 16,
-                  offset: const Offset(0, 6),
+                  blurRadius: 12,
+                  offset: const Offset(0, 4),
                 ),
                 BoxShadow(
                   color: Colors.black.withOpacity(0.03),
-                  blurRadius: 8,
+                  blurRadius: 6,
                   offset: const Offset(0, 2),
                 ),
               ],
@@ -300,15 +310,15 @@ class _ProfileScreenState extends State<ProfileScreen> {
             ),
           ),
 
-          const SizedBox(height: 16),
+          const SizedBox(height: 12),
 
           // Logout button
           Container(
-            margin: const EdgeInsets.symmetric(horizontal: 20),
+            margin: const EdgeInsets.symmetric(horizontal: 16),
             child: _buildLogoutButton(),
           ),
 
-          const SizedBox(height: 32),
+          const SizedBox(height: 24),
         ],
       ),
     );
@@ -326,71 +336,69 @@ class _ProfileScreenState extends State<ProfileScreen> {
               end: Alignment.bottomRight,
             ),
             borderRadius: const BorderRadius.only(
-              bottomLeft: Radius.circular(32),
-              bottomRight: Radius.circular(32),
+              bottomLeft: Radius.circular(24),
+              bottomRight: Radius.circular(24),
             ),
             boxShadow: [
               BoxShadow(
                 color: AppColors.primary.withOpacity(0.3),
-                blurRadius: 20,
-                offset: const Offset(0, 8),
+                blurRadius: 16,
+                offset: const Offset(0, 6),
               ),
               BoxShadow(
                 color: Colors.black.withOpacity(0.1),
-                blurRadius: 12,
-                offset: const Offset(0, 4),
+                blurRadius: 10,
+                offset: const Offset(0, 3),
               ),
             ],
           ),
           child: SafeArea(
             child: Padding(
-              padding: const EdgeInsets.fromLTRB(24, 32, 24, 40),
+              padding: const EdgeInsets.fromLTRB(20, 24, 20, 32),
               child: Column(
                 children: [
                   // Foto profil
                   Stack(
                     children: [
                       Container(
-                        width: 120,
-                        height: 120,
+                        width: 100,
+                        height: 100,
                         decoration: BoxDecoration(
                           shape: BoxShape.circle,
-                          border: Border.all(
-                            color: AppColors.white,
-                            width: 4,
-                          ),
+                          border: Border.all(color: AppColors.white, width: 3),
                           boxShadow: [
                             BoxShadow(
                               color: Colors.black.withOpacity(0.25),
-                              blurRadius: 20,
-                              offset: const Offset(0, 8),
+                              blurRadius: 16,
+                              offset: const Offset(0, 6),
                             ),
                             BoxShadow(
                               color: Colors.black.withOpacity(0.15),
-                              blurRadius: 12,
-                              offset: const Offset(0, 4),
+                              blurRadius: 10,
+                              offset: const Offset(0, 3),
                             ),
                           ],
                         ),
                         child: ClipOval(
-                          child: _isUploadingPhoto
-                              ? Container(
-                                  color: AppColors.gray200,
-                                  child: const Center(
-                                    child: CircularProgressIndicator(
-                                      color: AppColors.primary,
-                                      strokeWidth: 3,
+                          child:
+                              _isUploadingPhoto
+                                  ? Container(
+                                    color: AppColors.gray200,
+                                    child: const Center(
+                                      child: CircularProgressIndicator(
+                                        color: AppColors.primary,
+                                        strokeWidth: 2.5,
+                                      ),
                                     ),
-                                  ),
-                                )
-                              : _currentUser?.avatar != null
+                                  )
+                                  : _currentUser?.avatar != null
                                   ? Image.network(
-                                      _currentUser!.avatar!,
-                                      fit: BoxFit.cover,
-                                      errorBuilder: (context, error, stackTrace) {
-                                        return _buildDefaultAvatar();
-                                      },
-                                    )
+                                    _currentUser!.avatar!,
+                                    fit: BoxFit.cover,
+                                    errorBuilder: (context, error, stackTrace) {
+                                      return _buildDefaultAvatar();
+                                    },
+                                  )
                                   : _buildDefaultAvatar(),
                         ),
                       ),
@@ -400,7 +408,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                         child: GestureDetector(
                           onTap: _isUploadingPhoto ? null : _handleChangePhoto,
                           child: Container(
-                            padding: const EdgeInsets.all(10),
+                            padding: const EdgeInsets.all(8),
                             decoration: BoxDecoration(
                               color: AppColors.white,
                               shape: BoxShape.circle,
@@ -411,14 +419,14 @@ class _ProfileScreenState extends State<ProfileScreen> {
                               boxShadow: [
                                 BoxShadow(
                                   color: Colors.black.withOpacity(0.15),
-                                  blurRadius: 8,
-                                  offset: const Offset(0, 4),
+                                  blurRadius: 6,
+                                  offset: const Offset(0, 3),
                                 ),
                               ],
                             ),
                             child: Icon(
                               Icons.camera_alt_rounded,
-                              size: 20,
+                              size: 16,
                               color: AppColors.primary,
                             ),
                           ),
@@ -427,7 +435,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                     ],
                   ),
 
-                  const SizedBox(height: 20),
+                  const SizedBox(height: 16),
 
                   // Username dengan tombol edit
                   Row(
@@ -439,23 +447,23 @@ class _ProfileScreenState extends State<ProfileScreen> {
                           style: AppTextStyles.headingMedium.copyWith(
                             color: AppColors.white,
                             fontWeight: FontWeight.bold,
-                            fontSize: 24,
+                            fontSize: 20,
                           ),
                           textAlign: TextAlign.center,
                           maxLines: 2,
                           overflow: TextOverflow.ellipsis,
                         ),
                       ),
-                      const SizedBox(width: 10),
+                      const SizedBox(width: 8),
                       GestureDetector(
                         onTap: () {
                           _showEditNameDialog();
                         },
                         child: Container(
-                          padding: const EdgeInsets.all(8),
+                          padding: const EdgeInsets.all(6),
                           decoration: BoxDecoration(
                             color: AppColors.white.withOpacity(0.25),
-                            borderRadius: BorderRadius.circular(10),
+                            borderRadius: BorderRadius.circular(8),
                             border: Border.all(
                               color: AppColors.white.withOpacity(0.3),
                               width: 1.5,
@@ -463,7 +471,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                           ),
                           child: Icon(
                             Icons.edit_rounded,
-                            size: 18,
+                            size: 16,
                             color: AppColors.white,
                           ),
                         ),
@@ -476,12 +484,12 @@ class _ProfileScreenState extends State<ProfileScreen> {
                   // Email atau phone
                   Container(
                     padding: const EdgeInsets.symmetric(
-                      horizontal: 16,
-                      vertical: 8,
+                      horizontal: 12,
+                      vertical: 6,
                     ),
                     decoration: BoxDecoration(
                       color: AppColors.white.withOpacity(0.2),
-                      borderRadius: BorderRadius.circular(20),
+                      borderRadius: BorderRadius.circular(16),
                       border: Border.all(
                         color: AppColors.white.withOpacity(0.3),
                         width: 1,
@@ -494,15 +502,15 @@ class _ProfileScreenState extends State<ProfileScreen> {
                           _currentUser?.email != null
                               ? Icons.email_outlined
                               : Icons.phone_outlined,
-                          size: 16,
+                          size: 14,
                           color: AppColors.white.withOpacity(0.9),
                         ),
-                        const SizedBox(width: 8),
+                        const SizedBox(width: 6),
                         Text(
                           _currentUser?.email ?? _currentUser?.phone ?? '',
                           style: AppTextStyles.bodyMedium.copyWith(
                             color: AppColors.white.withOpacity(0.95),
-                            fontSize: 14,
+                            fontSize: 13,
                           ),
                         ),
                       ],
@@ -518,8 +526,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
           top: -40,
           right: -40,
           child: Container(
-            width: 150,
-            height: 150,
+            width: 110,
+            height: 110,
             decoration: BoxDecoration(
               shape: BoxShape.circle,
               color: AppColors.white.withOpacity(0.1),
@@ -530,8 +538,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
           bottom: 20,
           left: -30,
           child: Container(
-            width: 100,
-            height: 100,
+            width: 80,
+            height: 80,
             decoration: BoxDecoration(
               shape: BoxShape.circle,
               color: AppColors.white.withOpacity(0.08),
@@ -545,7 +553,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
   Widget _buildDefaultAvatar() {
     return Container(
       color: AppColors.gray200,
-      child: const Icon(Icons.person, size: 50, color: AppColors.gray500),
+      child: const Icon(Icons.person, size: 40, color: AppColors.gray500),
     );
   }
 
@@ -559,13 +567,13 @@ class _ProfileScreenState extends State<ProfileScreen> {
     final iconColor = color ?? AppColors.primary;
     return InkWell(
       onTap: onTap,
-      borderRadius: BorderRadius.circular(20),
+      borderRadius: BorderRadius.circular(16),
       child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 18),
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
         child: Row(
           children: [
             Container(
-              padding: const EdgeInsets.all(12),
+              padding: const EdgeInsets.all(10),
               decoration: BoxDecoration(
                 gradient: LinearGradient(
                   colors: [
@@ -573,15 +581,12 @@ class _ProfileScreenState extends State<ProfileScreen> {
                     iconColor.withOpacity(0.06),
                   ],
                 ),
-                borderRadius: BorderRadius.circular(14),
-                border: Border.all(
-                  color: iconColor.withOpacity(0.2),
-                  width: 1,
-                ),
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: iconColor.withOpacity(0.2), width: 1),
               ),
-              child: Icon(icon, size: 24, color: iconColor),
+              child: Icon(icon, size: 20, color: iconColor),
             ),
-            const SizedBox(width: 16),
+            const SizedBox(width: 12),
             Expanded(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -590,7 +595,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                     title,
                     style: AppTextStyles.bodyMedium.copyWith(
                       fontWeight: FontWeight.w600,
-                      fontSize: 15,
+                      fontSize: 14,
                       color: AppColors.gray800,
                     ),
                   ),
@@ -600,7 +605,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                       subtitle,
                       style: AppTextStyles.bodySmall.copyWith(
                         color: AppColors.gray500,
-                        fontSize: 12,
+                        fontSize: 11,
                       ),
                     ),
                   ],
@@ -611,12 +616,12 @@ class _ProfileScreenState extends State<ProfileScreen> {
               padding: const EdgeInsets.all(4),
               decoration: BoxDecoration(
                 color: AppColors.gray100,
-                borderRadius: BorderRadius.circular(8),
+                borderRadius: BorderRadius.circular(6),
               ),
               child: Icon(
                 Icons.chevron_right_rounded,
                 color: AppColors.gray400,
-                size: 20,
+                size: 18,
               ),
             ),
           ],
@@ -636,25 +641,22 @@ class _ProfileScreenState extends State<ProfileScreen> {
   Widget _buildLogoutButton() {
     return InkWell(
       onTap: _handleLogout,
-      borderRadius: BorderRadius.circular(20),
+      borderRadius: BorderRadius.circular(16),
       child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 18),
+        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
         decoration: BoxDecoration(
           color: AppColors.white,
-          borderRadius: BorderRadius.circular(20),
-          border: Border.all(
-            color: AppColors.red600,
-            width: 2,
-          ),
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(color: AppColors.red600, width: 2),
           boxShadow: [
             BoxShadow(
               color: AppColors.red600.withOpacity(0.1),
-              blurRadius: 12,
-              offset: const Offset(0, 4),
+              blurRadius: 10,
+              offset: const Offset(0, 3),
             ),
             BoxShadow(
               color: Colors.black.withOpacity(0.04),
-              blurRadius: 8,
+              blurRadius: 6,
               offset: const Offset(0, 2),
             ),
           ],
@@ -663,24 +665,24 @@ class _ProfileScreenState extends State<ProfileScreen> {
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
             Container(
-              padding: const EdgeInsets.all(8),
+              padding: const EdgeInsets.all(6),
               decoration: BoxDecoration(
                 color: AppColors.red600.withOpacity(0.1),
-                borderRadius: BorderRadius.circular(10),
+                borderRadius: BorderRadius.circular(8),
               ),
               child: Icon(
                 Icons.logout_rounded,
                 color: AppColors.red600,
-                size: 20,
+                size: 18,
               ),
             ),
-            const SizedBox(width: 12),
+            const SizedBox(width: 10),
             Text(
               'Logout',
               style: AppTextStyles.labelLarge.copyWith(
                 color: AppColors.red600,
                 fontWeight: FontWeight.bold,
-                fontSize: 16,
+                fontSize: 15,
               ),
             ),
           ],

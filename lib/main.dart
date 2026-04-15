@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:permission_handler/permission_handler.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'config/api_config.dart';
 import 'theme/theme.dart';
 import 'pages/onboarding_screen.dart';
@@ -18,7 +20,8 @@ import 'pages/modul/quiz_result_screen.dart';
 import 'pages/profile/profile_screen.dart';
 import 'pages/profile/full_data_screen.dart';
 import 'pages/profile/change_password_screen.dart';
-import 'pages/profile/settings_screen.dart';
+import 'pages/profile/setting_screen.dart';
+import 'pages/note/notes_screen.dart';
 import 'services/storage_service.dart';
 
 /// Main function - Entry point aplikasi
@@ -78,6 +81,7 @@ class MyApp extends StatelessWidget {
         '/quiz': (context) => const QuizScreen(),
         '/quiz-questions': (context) => const QuizQuestionScreen(),
         '/quiz-result': (context) => const QuizResultScreen(),
+        '/notes': (context) => const NotesScreen(),
       },
     );
   }
@@ -93,6 +97,7 @@ class SplashScreen extends StatefulWidget {
 
 class _SplashScreenState extends State<SplashScreen> {
   final StorageService _storageService = StorageService();
+  static const String _notifPermAskedKey = 'notification_permission_asked';
 
   @override
   void initState() {
@@ -100,30 +105,39 @@ class _SplashScreenState extends State<SplashScreen> {
     _checkLoginStatus();
   }
 
-  /// Check apakah user sudah login
   Future<void> _checkLoginStatus() async {
-    // Tunggu sebentar untuk splash screen effect
     await Future.delayed(const Duration(seconds: 2));
 
     if (!mounted) return;
 
-    // Check login status
     final isLoggedIn = await _storageService.isLoggedIn();
 
     if (isLoggedIn) {
-      // Sudah login, redirect ke home
       Navigator.pushReplacementNamed(context, '/home');
+      _requestNotificationPermissionIfNeeded();
     } else {
-      // Belum login, check onboarding
       final hasSeenOnboarding = await _storageService.isOnboardingCompleted();
 
       if (hasSeenOnboarding) {
-        // Sudah lihat onboarding, langsung ke login
         Navigator.pushReplacementNamed(context, '/login');
       } else {
-        // Belum lihat onboarding, tampilkan onboarding
         Navigator.pushReplacementNamed(context, '/onboarding');
       }
+    }
+  }
+
+  Future<void> _requestNotificationPermissionIfNeeded() async {
+    final prefs = await SharedPreferences.getInstance();
+    final alreadyAsked = prefs.getBool(_notifPermAskedKey) ?? false;
+    if (alreadyAsked) return;
+
+    await prefs.setBool(_notifPermAskedKey, true);
+
+    await Future.delayed(const Duration(milliseconds: 800));
+
+    final status = await Permission.notification.status;
+    if (!status.isGranted) {
+      await Permission.notification.request();
     }
   }
 

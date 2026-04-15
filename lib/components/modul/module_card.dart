@@ -35,20 +35,20 @@ class ModuleCard extends StatelessWidget {
     return GestureDetector(
       onTap: onTap,
       child: Container(
-        margin: const EdgeInsets.only(bottom: 20),
+        margin: const EdgeInsets.only(bottom: 14),
         decoration: BoxDecoration(
           color: AppColors.white,
-          borderRadius: BorderRadius.circular(20),
+          borderRadius: BorderRadius.circular(16),
           border: Border.all(color: cardColor.withOpacity(0.15), width: 1.5),
           boxShadow: [
             BoxShadow(
               color: cardColor.withOpacity(0.1),
-              blurRadius: 16,
-              offset: const Offset(0, 6),
+              blurRadius: 12,
+              offset: const Offset(0, 4),
             ),
             BoxShadow(
               color: Colors.black.withOpacity(0.04),
-              blurRadius: 8,
+              blurRadius: 6,
               offset: const Offset(0, 2),
             ),
           ],
@@ -58,15 +58,15 @@ class ModuleCard extends StatelessWidget {
           children: [
             // Header with category and status
             Padding(
-              padding: const EdgeInsets.fromLTRB(20, 20, 20, 16),
+              padding: const EdgeInsets.fromLTRB(14, 14, 14, 12),
               child: Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
                   // Category badge
                   Container(
                     padding: const EdgeInsets.symmetric(
-                      horizontal: 14,
-                      vertical: 8,
+                      horizontal: 10,
+                      vertical: 6,
                     ),
                     decoration: BoxDecoration(
                       gradient: LinearGradient(
@@ -75,7 +75,7 @@ class ModuleCard extends StatelessWidget {
                           AppColors.secondary.withOpacity(0.08),
                         ],
                       ),
-                      borderRadius: BorderRadius.circular(24),
+                      borderRadius: BorderRadius.circular(16),
                       border: Border.all(
                         color: AppColors.primary.withOpacity(0.2),
                         width: 1,
@@ -86,20 +86,20 @@ class ModuleCard extends StatelessWidget {
                       style: AppTextStyles.labelSmall.copyWith(
                         color: AppColors.primary,
                         fontWeight: FontWeight.w700,
-                        fontSize: 11,
-                        letterSpacing: 0.5,
+                        fontSize: 10,
+                        letterSpacing: 0.3,
                       ),
                     ),
                   ),
                   // Status badge
                   Container(
                     padding: const EdgeInsets.symmetric(
-                      horizontal: 14,
-                      vertical: 8,
+                      horizontal: 10,
+                      vertical: 6,
                     ),
                     decoration: BoxDecoration(
                       color: statusColor.withOpacity(0.12),
-                      borderRadius: BorderRadius.circular(24),
+                      borderRadius: BorderRadius.circular(16),
                       border: Border.all(
                         color: statusColor.withOpacity(0.3),
                         width: 1,
@@ -109,20 +109,20 @@ class ModuleCard extends StatelessWidget {
                       mainAxisSize: MainAxisSize.min,
                       children: [
                         Container(
-                          width: 6,
-                          height: 6,
+                          width: 5,
+                          height: 5,
                           decoration: BoxDecoration(
                             color: statusColor,
                             shape: BoxShape.circle,
                           ),
                         ),
-                        const SizedBox(width: 6),
+                        const SizedBox(width: 5),
                         Text(
                           statusText,
                           style: AppTextStyles.labelSmall.copyWith(
                             color: statusColor,
                             fontWeight: FontWeight.w700,
-                            fontSize: 11,
+                            fontSize: 10,
                           ),
                         ),
                       ],
@@ -134,13 +134,13 @@ class ModuleCard extends StatelessWidget {
 
             // Icon and Title
             Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 20),
+              padding: const EdgeInsets.symmetric(horizontal: 14),
               child: Row(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   // Icon with gradient background
                   Container(
-                    padding: const EdgeInsets.all(14),
+                    padding: const EdgeInsets.all(10),
                     decoration: BoxDecoration(
                       gradient: LinearGradient(
                         colors: [
@@ -150,15 +150,15 @@ class ModuleCard extends StatelessWidget {
                         begin: Alignment.topLeft,
                         end: Alignment.bottomRight,
                       ),
-                      borderRadius: BorderRadius.circular(16),
+                      borderRadius: BorderRadius.circular(12),
                     ),
                     child: Icon(
                       Icons.menu_book_rounded,
                       color: cardColor,
-                      size: 28,
+                      size: 22,
                     ),
                   ),
-                  const SizedBox(width: 14),
+                  const SizedBox(width: 12),
                   // Title
                   Expanded(
                     child: Column(
@@ -170,7 +170,7 @@ class ModuleCard extends StatelessWidget {
                           style: AppTextStyles.headingSmall.copyWith(
                             color: AppColors.gray800,
                             fontWeight: FontWeight.bold,
-                            fontSize: 17,
+                            fontSize: 15,
                             height: 1.3,
                           ),
                           maxLines: 2,
@@ -183,11 +183,11 @@ class ModuleCard extends StatelessWidget {
               ),
             ),
 
-            const SizedBox(height: 20),
+            const SizedBox(height: 14),
 
             // Progress section
             Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 20),
+              padding: const EdgeInsets.symmetric(horizontal: 14),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
@@ -198,7 +198,7 @@ class ModuleCard extends StatelessWidget {
                         'Progress Pembelajaran',
                         style: AppTextStyles.labelMedium.copyWith(
                           color: AppColors.gray600,
-                          fontSize: 12,
+                          fontSize: 11,
                           fontWeight: FontWeight.w500,
                         ),
                       ),
@@ -206,16 +206,16 @@ class ModuleCard extends StatelessWidget {
                         '${progressPercent.toStringAsFixed(0)}%',
                         style: AppTextStyles.labelMedium.copyWith(
                           color: cardColor,
-                          fontSize: 14,
+                          fontSize: 12,
                           fontWeight: FontWeight.w700,
                         ),
                       ),
                     ],
                   ),
-                  const SizedBox(height: 10),
+                  const SizedBox(height: 8),
                   // Progress bar with gradient
                   Container(
-                    height: 8,
+                    height: 6,
                     decoration: BoxDecoration(
                       color: cardColor.withOpacity(0.12),
                       borderRadius: BorderRadius.circular(4),
@@ -244,11 +244,11 @@ class ModuleCard extends StatelessWidget {
               ),
             ),
 
-            const SizedBox(height: 20),
+            const SizedBox(height: 14),
 
             // Footer - lessons and duration
             Container(
-              padding: const EdgeInsets.all(20),
+              padding: const EdgeInsets.all(14),
               decoration: BoxDecoration(
                 gradient: LinearGradient(
                   colors: [AppColors.gray50, AppColors.white],
@@ -256,8 +256,8 @@ class ModuleCard extends StatelessWidget {
                   end: Alignment.bottomCenter,
                 ),
                 borderRadius: const BorderRadius.only(
-                  bottomLeft: Radius.circular(20),
-                  bottomRight: Radius.circular(20),
+                  bottomLeft: Radius.circular(16),
+                  bottomRight: Radius.circular(16),
                 ),
                 border: Border(
                   top: BorderSide(color: AppColors.gray200, width: 1),
@@ -269,24 +269,24 @@ class ModuleCard extends StatelessWidget {
                     child: Row(
                       children: [
                         Container(
-                          padding: const EdgeInsets.all(8),
+                          padding: const EdgeInsets.all(6),
                           decoration: BoxDecoration(
                             color: AppColors.blue600.withOpacity(0.1),
-                            borderRadius: BorderRadius.circular(8),
+                            borderRadius: BorderRadius.circular(6),
                           ),
                           child: Icon(
                             Icons.play_circle_outline_rounded,
-                            size: 18,
+                            size: 16,
                             color: AppColors.blue600,
                           ),
                         ),
-                        const SizedBox(width: 10),
+                        const SizedBox(width: 8),
                         Flexible(
                           child: Text(
                             '$lessonsCount pelajaran',
                             style: AppTextStyles.labelMedium.copyWith(
                               color: AppColors.gray700,
-                              fontSize: 13,
+                              fontSize: 12,
                               fontWeight: FontWeight.w600,
                             ),
                           ),
@@ -294,29 +294,29 @@ class ModuleCard extends StatelessWidget {
                       ],
                     ),
                   ),
-                  const SizedBox(width: 16),
+                  const SizedBox(width: 12),
                   Expanded(
                     child: Row(
                       children: [
                         Container(
-                          padding: const EdgeInsets.all(8),
+                          padding: const EdgeInsets.all(6),
                           decoration: BoxDecoration(
                             color: AppColors.orange600.withOpacity(0.1),
-                            borderRadius: BorderRadius.circular(8),
+                            borderRadius: BorderRadius.circular(6),
                           ),
                           child: Icon(
                             Icons.schedule_rounded,
-                            size: 18,
+                            size: 16,
                             color: AppColors.orange600,
                           ),
                         ),
-                        const SizedBox(width: 10),
+                        const SizedBox(width: 8),
                         Flexible(
                           child: Text(
                             duration,
                             style: AppTextStyles.labelMedium.copyWith(
                               color: AppColors.gray700,
-                              fontSize: 13,
+                              fontSize: 12,
                               fontWeight: FontWeight.w600,
                             ),
                           ),

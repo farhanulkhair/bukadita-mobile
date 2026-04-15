@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_widget_from_html/flutter_widget_from_html.dart';
 import '../../theme/theme.dart';
+import '../../components/note/notes_fab.dart';
 import '../../services/module_service.dart';
 import '../../services/progress_service.dart';
 import '../../services/quiz_service.dart';
@@ -117,6 +118,7 @@ class _MaterialPoinDetailScreenState extends State<MaterialPoinDetailScreen> {
         setState(() {
           _hasScrolledToBottom = true;
         });
+        _autoMarkCurrentPoinAsRead();
       }
     } else {
       if (_hasScrolledToBottom) {
@@ -125,6 +127,28 @@ class _MaterialPoinDetailScreenState extends State<MaterialPoinDetailScreen> {
         });
       }
     }
+  }
+
+  /// Auto-mark current poin as read when scrolled to bottom
+  Future<void> _autoMarkCurrentPoinAsRead() async {
+    if (_currentPoinIndex >= _poinDetails.length) return;
+
+    final currentPoin = _poinDetails[_currentPoinIndex];
+    final poinId = currentPoin['id']?.toString() ?? '';
+
+    if (poinId.isEmpty || _completedPoinIds.contains(poinId)) return;
+
+    setState(() {
+      _completedPoins.add(_currentPoinIndex);
+      _completedPoinIds.add(poinId);
+    });
+
+    await _progressService.savePoinReadLocally(_materialId, poinId);
+    await _progressService.markPoinCompleted(poinId);
+
+    debugPrint(
+      '📖 [MATERIAL] Poin $poinId auto-marked as read (scroll to bottom)',
+    );
   }
 
   Future<void> _loadMaterialDetail() async {
@@ -307,6 +331,8 @@ class _MaterialPoinDetailScreenState extends State<MaterialPoinDetailScreen> {
 
     final currentPoin = _poinDetails[_currentPoinIndex];
     final poinId = currentPoin['id']?.toString() ?? '';
+    final alreadyMarked =
+        poinId.isNotEmpty && _completedPoinIds.contains(poinId);
 
     // Mark locally
     setState(() {
@@ -316,8 +342,9 @@ class _MaterialPoinDetailScreenState extends State<MaterialPoinDetailScreen> {
       }
     });
 
-    // Call API untuk mark as completed
-    if (poinId.isNotEmpty) {
+    // Call API (skip if already marked by scroll-to-bottom auto-read)
+    if (poinId.isNotEmpty && !alreadyMarked) {
+      await _progressService.savePoinReadLocally(_materialId, poinId);
       final result = await _progressService.markPoinCompleted(poinId);
       if (result['success']) {
         debugPrint('✅ [MATERIAL] Poin $poinId marked as completed');
@@ -533,13 +560,16 @@ class _MaterialPoinDetailScreenState extends State<MaterialPoinDetailScreen> {
         });
         return;
       } else {
-        // Sudah poin terakhir, kembali ke materials list
+        // Sudah poin terakhir, navigasi ke materi berikutnya
         debugPrint(
-          '📍 [MATERIAL] Last poin completed, going back to materials list',
+          '📍 [MATERIAL] Last poin completed, navigating to next material',
         );
-        Navigator.popUntil(context, (route) {
-          return route.settings.name == '/modul-materials' || route.isFirst;
-        });
+        if (mounted) {
+          Navigator.pop(context, {
+            'navigateToNextMaterial': true,
+            'currentMaterialId': _materialId,
+          });
+        }
         return;
       }
     }
@@ -672,15 +702,15 @@ class _MaterialPoinDetailScreenState extends State<MaterialPoinDetailScreen> {
                 children: [
                   // Info Card
                   Container(
-                    margin: const EdgeInsets.all(16),
-                    padding: const EdgeInsets.all(16),
+                    margin: const EdgeInsets.fromLTRB(12, 12, 12, 8),
+                    padding: const EdgeInsets.all(12),
                     decoration: BoxDecoration(
                       color: AppColors.white,
-                      borderRadius: BorderRadius.circular(12),
+                      borderRadius: BorderRadius.circular(10),
                       boxShadow: [
                         BoxShadow(
-                          color: AppColors.gray400.withOpacity(0.15),
-                          blurRadius: 8,
+                          color: AppColors.gray400.withOpacity(0.1),
+                          blurRadius: 6,
                           offset: const Offset(0, 2),
                         ),
                       ],
@@ -691,18 +721,18 @@ class _MaterialPoinDetailScreenState extends State<MaterialPoinDetailScreen> {
                         Row(
                           children: [
                             Container(
-                              padding: const EdgeInsets.all(8),
+                              padding: const EdgeInsets.all(6),
                               decoration: BoxDecoration(
                                 color: AppColors.primary.withOpacity(0.1),
-                                borderRadius: BorderRadius.circular(8),
+                                borderRadius: BorderRadius.circular(7),
                               ),
                               child: Icon(
                                 Icons.menu_book,
                                 color: AppColors.primary,
-                                size: 20,
+                                size: 18,
                               ),
                             ),
-                            const SizedBox(width: 12),
+                            const SizedBox(width: 10),
                             Expanded(
                               child: Column(
                                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -819,6 +849,7 @@ class _MaterialPoinDetailScreenState extends State<MaterialPoinDetailScreen> {
                   _buildBottomBar(),
                 ],
               ),
+      floatingActionButton: const NotesFab(),
     );
   }
 
@@ -828,14 +859,14 @@ class _MaterialPoinDetailScreenState extends State<MaterialPoinDetailScreen> {
     final progress = (_currentPoinIndex + 1) / _poinDetails.length;
 
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
       decoration: BoxDecoration(
         color: AppColors.white,
         boxShadow: [
           BoxShadow(
-            color: AppColors.gray400.withOpacity(0.1),
+            color: AppColors.gray400.withOpacity(0.08),
             blurRadius: 4,
-            offset: const Offset(0, 2),
+            offset: const Offset(0, 1),
           ),
         ],
       ),
@@ -849,6 +880,7 @@ class _MaterialPoinDetailScreenState extends State<MaterialPoinDetailScreen> {
                 style: AppTextStyles.labelMedium.copyWith(
                   color: AppColors.gray600,
                   fontWeight: FontWeight.w600,
+                  fontSize: 12,
                 ),
               ),
               Text(
@@ -856,18 +888,19 @@ class _MaterialPoinDetailScreenState extends State<MaterialPoinDetailScreen> {
                 style: AppTextStyles.labelMedium.copyWith(
                   color: AppColors.primary,
                   fontWeight: FontWeight.bold,
+                  fontSize: 12,
                 ),
               ),
             ],
           ),
-          const SizedBox(height: 8),
+          const SizedBox(height: 6),
           ClipRRect(
-            borderRadius: BorderRadius.circular(4),
+            borderRadius: BorderRadius.circular(3),
             child: LinearProgressIndicator(
               value: progress,
               backgroundColor: AppColors.gray200,
               valueColor: AlwaysStoppedAnimation<Color>(AppColors.primary),
-              minHeight: 6,
+              minHeight: 5,
             ),
           ),
         ],
@@ -880,29 +913,29 @@ class _MaterialPoinDetailScreenState extends State<MaterialPoinDetailScreen> {
 
     return SingleChildScrollView(
       controller: _scrollController,
-      padding: const EdgeInsets.all(20),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // Poin title
+          // Poin title - lebih compact
           Container(
-            padding: const EdgeInsets.all(20),
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
             decoration: BoxDecoration(
               gradient: LinearGradient(
                 colors: [AppColors.primary, AppColors.secondary],
                 begin: Alignment.centerLeft,
                 end: Alignment.centerRight,
               ),
-              borderRadius: BorderRadius.circular(16),
+              borderRadius: BorderRadius.circular(12),
             ),
             child: Row(
               children: [
                 Container(
-                  width: 40,
-                  height: 40,
+                  width: 32,
+                  height: 32,
                   decoration: BoxDecoration(
                     color: AppColors.white,
-                    borderRadius: BorderRadius.circular(10),
+                    borderRadius: BorderRadius.circular(8),
                   ),
                   child: Center(
                     child: Text(
@@ -910,11 +943,12 @@ class _MaterialPoinDetailScreenState extends State<MaterialPoinDetailScreen> {
                       style: AppTextStyles.headingSmall.copyWith(
                         color: AppColors.primary,
                         fontWeight: FontWeight.bold,
+                        fontSize: 16,
                       ),
                     ),
                   ),
                 ),
-                const SizedBox(width: 16),
+                const SizedBox(width: 12),
                 Expanded(
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
@@ -924,6 +958,7 @@ class _MaterialPoinDetailScreenState extends State<MaterialPoinDetailScreen> {
                         style: AppTextStyles.labelLarge.copyWith(
                           color: AppColors.white,
                           fontWeight: FontWeight.bold,
+                          fontSize: 15,
                         ),
                       ),
                       if (poin['duration_label'] != null)
@@ -931,6 +966,7 @@ class _MaterialPoinDetailScreenState extends State<MaterialPoinDetailScreen> {
                           poin['duration_label'],
                           style: AppTextStyles.bodySmall.copyWith(
                             color: AppColors.white.withOpacity(0.9),
+                            fontSize: 11,
                           ),
                         ),
                     ],
@@ -940,18 +976,19 @@ class _MaterialPoinDetailScreenState extends State<MaterialPoinDetailScreen> {
             ),
           ),
 
-          const SizedBox(height: 24),
+          const SizedBox(height: 12),
 
-          // Content
+          // Content - lebih luas untuk membaca
           Container(
-            padding: const EdgeInsets.all(20),
+            width: double.infinity,
+            padding: const EdgeInsets.all(16),
             decoration: BoxDecoration(
               color: AppColors.white,
-              borderRadius: BorderRadius.circular(16),
+              borderRadius: BorderRadius.circular(12),
               boxShadow: [
                 BoxShadow(
-                  color: AppColors.gray400.withOpacity(0.1),
-                  blurRadius: 8,
+                  color: AppColors.gray400.withOpacity(0.08),
+                  blurRadius: 6,
                   offset: const Offset(0, 2),
                 ),
               ],
@@ -961,14 +998,16 @@ class _MaterialPoinDetailScreenState extends State<MaterialPoinDetailScreen> {
                     ? HtmlWidget(
                       htmlContent,
                       textStyle: AppTextStyles.bodyMedium.copyWith(
-                        height: 1.6,
-                        color: AppColors.gray700,
+                        height: 1.7,
+                        fontSize: 15,
+                        color: AppColors.gray800,
                       ),
                     )
                     : Text(
                       'Konten pembelajaran akan ditampilkan di sini.',
                       style: AppTextStyles.bodyMedium.copyWith(
                         color: AppColors.gray500,
+                        fontSize: 15,
                       ),
                     ),
           ),
@@ -984,7 +1023,7 @@ class _MaterialPoinDetailScreenState extends State<MaterialPoinDetailScreen> {
     final isFirstPoin = _currentPoinIndex == 0;
 
     return Container(
-      padding: const EdgeInsets.all(16),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
       decoration: BoxDecoration(
         color: AppColors.white,
         boxShadow: [

@@ -31,13 +31,13 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
           'Akses berbagai modul pembelajaran lengkap dengan materi, video, dan kuis interaktif untuk pemahaman optimal',
       color: AppColors.green600,
     ),
-    OnboardingData(
-      icon: Icons.workspace_premium_rounded,
-      title: 'Raih Sertifikat\nKompetensi',
-      description:
-          'Selesaikan pembelajaran dan ujian untuk mendapatkan sertifikat kompetensi yang diakui',
-      color: AppColors.orange600,
-    ),
+    // OnboardingData(
+    //   icon: Icons.workspace_premium_rounded,
+    //   title: 'Raih Sertifikat\nKompetensi',
+    //   description:
+    //       'Selesaikan pembelajaran dan ujian untuk mendapatkan sertifikat kompetensi yang diakui',
+    //   color: AppColors.orange600,
+    // ),
   ];
 
   @override
@@ -147,14 +147,14 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
   /// Build single onboarding page
   Widget _buildOnboardingPage(OnboardingData data) {
     return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 32),
+      padding: const EdgeInsets.symmetric(horizontal: 28),
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
           // Icon dengan gradient background
           Container(
-            width: 180,
-            height: 180,
+            width: 140,
+            height: 140,
             decoration: BoxDecoration(
               gradient: LinearGradient(
                 colors: [
@@ -169,13 +169,13 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
               boxShadow: [
                 BoxShadow(
                   color: data.color.withOpacity(0.2),
-                  blurRadius: 30,
-                  offset: const Offset(0, 10),
+                  blurRadius: 20,
+                  offset: const Offset(0, 8),
                 ),
                 BoxShadow(
                   color: Colors.black.withOpacity(0.05),
-                  blurRadius: 20,
-                  offset: const Offset(0, 5),
+                  blurRadius: 12,
+                  offset: const Offset(0, 4),
                 ),
               ],
             ),
@@ -183,11 +183,11 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
               children: [
                 // Decorative circles
                 Positioned(
-                  top: 20,
-                  right: 20,
+                  top: 16,
+                  right: 16,
                   child: Container(
-                    width: 40,
-                    height: 40,
+                    width: 30,
+                    height: 30,
                     decoration: BoxDecoration(
                       shape: BoxShape.circle,
                       color: data.color.withOpacity(0.1),
@@ -195,11 +195,11 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
                   ),
                 ),
                 Positioned(
-                  bottom: 30,
-                  left: 30,
+                  bottom: 24,
+                  left: 24,
                   child: Container(
-                    width: 25,
-                    height: 25,
+                    width: 20,
+                    height: 20,
                     decoration: BoxDecoration(
                       shape: BoxShape.circle,
                       color: data.color.withOpacity(0.15),
@@ -209,7 +209,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
                 // Main icon
                 Center(
                   child: Container(
-                    padding: const EdgeInsets.all(20),
+                    padding: const EdgeInsets.all(16),
                     decoration: BoxDecoration(
                       gradient: LinearGradient(
                         colors: [data.color, data.color.withOpacity(0.8)],
@@ -218,19 +218,19 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
                       boxShadow: [
                         BoxShadow(
                           color: data.color.withOpacity(0.4),
-                          blurRadius: 20,
-                          offset: const Offset(0, 8),
+                          blurRadius: 16,
+                          offset: const Offset(0, 6),
                         ),
                       ],
                     ),
-                    child: Icon(data.icon, size: 60, color: AppColors.white),
+                    child: Icon(data.icon, size: 48, color: AppColors.white),
                   ),
                 ),
               ],
             ),
           ),
 
-          const SizedBox(height: 48),
+          const SizedBox(height: 36),
 
           // Title
           Text(
@@ -239,12 +239,12 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
             style: AppTextStyles.headingLarge.copyWith(
               color: AppColors.secondary,
               fontWeight: FontWeight.bold,
-              fontSize: 28,
+              fontSize: 22,
               height: 1.3,
             ),
           ),
 
-          const SizedBox(height: 20),
+          const SizedBox(height: 16),
 
           // Description
           Text(
@@ -252,8 +252,8 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
             textAlign: TextAlign.center,
             style: AppTextStyles.bodyLarge.copyWith(
               color: AppColors.gray600,
-              fontSize: 15,
-              height: 1.6,
+              fontSize: 14,
+              height: 1.5,
             ),
           ),
         ],

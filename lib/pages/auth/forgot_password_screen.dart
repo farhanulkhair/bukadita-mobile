@@ -7,6 +7,7 @@ import '../../widgets/error_alert.dart';
 import '../../models/forgot_password_request.dart';
 import '../../services/auth_service.dart';
 import '../../utils/validators.dart';
+import '../../utils/error_helper.dart';
 
 /// Halaman Reset/Lupa Password BukaDita
 /// User memasukkan email/phone dan password baru untuk reset password
@@ -107,7 +108,7 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
       }
     } catch (e) {
       setState(() {
-        _generalError = e.toString();
+        _generalError = friendlyErrorMessage(e);
       });
     } finally {
       if (mounted) {

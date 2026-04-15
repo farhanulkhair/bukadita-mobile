@@ -3,6 +3,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'package:http/http.dart' as http;
 import '../config/api_config.dart';
+import '../utils/error_helper.dart';
 
 /// API Client untuk handle semua HTTP requests
 /// Menggunakan http package dengan error handling lengkap
@@ -36,7 +37,7 @@ class ApiClient {
     } on HttpException {
       throw ApiException('Server error, silakan coba lagi');
     } catch (e) {
-      throw ApiException('Terjadi kesalahan: ${e.toString()}');
+      throw ApiException(friendlyErrorMessage(e));
     }
   }
 
@@ -62,7 +63,7 @@ class ApiClient {
     } on HttpException {
       throw ApiException('Server error, silakan coba lagi');
     } catch (e) {
-      throw ApiException('Terjadi kesalahan: ${e.toString()}');
+      throw ApiException(friendlyErrorMessage(e));
     }
   }
 
@@ -81,15 +82,16 @@ class ApiClient {
         return jsonResponse;
       }
 
-      // Handle error response
-      final errorMessage =
-          jsonResponse['error'] ??
-          jsonResponse['message'] ??
-          'Terjadi kesalahan pada server';
-      throw ApiException(errorMessage);
+      // Handle error response — 'error' field bisa boolean (true/false) atau string
+      final errorField = jsonResponse['error'];
+      final rawMessage = (errorField is String && errorField.isNotEmpty)
+          ? errorField
+          : jsonResponse['message']?.toString() ??
+              'Terjadi kesalahan pada server';
+      throw ApiException(translateApiMessage(rawMessage));
     } catch (e) {
       if (e is ApiException) rethrow;
-      throw ApiException('Gagal memproses response: ${e.toString()}');
+      throw ApiException(friendlyErrorMessage(e));
     }
   }
 

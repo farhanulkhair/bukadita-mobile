@@ -3,6 +3,7 @@ import '../models/login_response.dart';
 import '../models/forgot_password_request.dart';
 import '../models/user_model.dart';
 import '../config/api_config.dart';
+import '../utils/error_helper.dart';
 import 'api_client.dart';
 import 'storage_service.dart';
 import 'package:http/http.dart' as http;
@@ -46,9 +47,10 @@ class AuthService {
       }
 
       return loginResponse;
+    } on ApiException catch (e) {
+      return LoginResponse(success: false, error: e.message);
     } catch (e) {
-      // Return error response
-      return LoginResponse(success: false, error: e.toString());
+      return LoginResponse(success: false, error: friendlyErrorMessage(e));
     }
   }
 
@@ -84,8 +86,10 @@ class AuthService {
         'success': true,
         'message': response['message'] ?? 'Password berhasil diubah',
       };
+    } on ApiException catch (e) {
+      return {'success': false, 'error': e.message};
     } catch (e) {
-      return {'success': false, 'error': e.toString()};
+      return {'success': false, 'error': friendlyErrorMessage(e)};
     }
   }
 

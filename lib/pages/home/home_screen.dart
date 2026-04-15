@@ -5,6 +5,8 @@ import '../../layouts/app_layout.dart';
 import '../../services/storage_service.dart';
 import '../../services/module_service.dart';
 import '../../services/progress_service.dart';
+import '../../services/cache_service.dart';
+import '../../services/notification_service.dart';
 
 /// Home Screen dengan Resizable Navbar
 class HomeScreen extends StatefulWidget {
@@ -18,6 +20,7 @@ class _HomeScreenState extends State<HomeScreen> {
   final ScrollController _scrollController = ScrollController();
   final PageController _carouselController = PageController();
   final PageController _sponsorCarouselController = PageController();
+  final NotificationService _notifService = NotificationService();
   String _userName = 'Pengguna';
   int _currentCarouselPage = 0;
   int _currentSponsorPage = 0;
@@ -30,6 +33,32 @@ class _HomeScreenState extends State<HomeScreen> {
     _loadUserData();
     _loadFeaturedModules();
     _startSponsorAutoScroll();
+    _backgroundRefreshIfStale();
+    _initNotifications();
+  }
+
+  Future<void> _initNotifications() async {
+    await _notifService.init();
+    _notifService.onNotificationTapped = () {
+      if (mounted) Navigator.pushNamed(context, '/notifications');
+    };
+    _notifService.startPolling();
+  }
+
+  Future<void> _onRefresh() async {
+    await Future.wait([
+      _loadUserData(),
+      _loadFeaturedModules(forceRefresh: true),
+    ]);
+  }
+
+  Future<void> _backgroundRefreshIfStale() async {
+    final cache = CacheService();
+    final freshness = await cache.freshness('modules_list_p1_l5');
+    if (freshness == CacheFreshness.stale ||
+        freshness == CacheFreshness.expired) {
+      _loadFeaturedModules(forceRefresh: true);
+    }
   }
 
   void _startSponsorAutoScroll() {
@@ -68,17 +97,19 @@ class _HomeScreenState extends State<HomeScreen> {
     }
   }
 
-  Future<void> _loadFeaturedModules() async {
+  Future<void> _loadFeaturedModules({bool forceRefresh = false}) async {
     try {
       final moduleService = ModuleService();
       final progressService = ProgressService();
 
-      // Load modules dan progress secara bersamaan
       final modulesResult = await moduleService.getAllModules(
         limit: 5,
         page: 1,
+        forceRefresh: forceRefresh,
       );
-      final progressResult = await progressService.getModulesProgress();
+      final progressResult = await progressService.getModulesProgress(
+        forceRefresh: forceRefresh,
+      );
 
       if (modulesResult['success'] && mounted) {
         final items = modulesResult['data']['items'] as List;
@@ -170,6 +201,7 @@ class _HomeScreenState extends State<HomeScreen> {
     _scrollController.dispose();
     _carouselController.dispose();
     _sponsorCarouselController.dispose();
+    _notifService.stopPolling();
     super.dispose();
   }
 
@@ -204,33 +236,67 @@ class _HomeScreenState extends State<HomeScreen> {
             ],
           ),
           actions: [
-            IconButton(
-              icon: Icon(
-                Icons.notifications_outlined,
-                color: AppColors.primary,
-              ),
-              onPressed: () {
-                Navigator.pushNamed(context, '/notifications');
+            ValueListenableBuilder<int>(
+              valueListenable: _notifService.unreadCount,
+              builder: (context, count, _) {
+                return IconButton(
+                  icon: Stack(
+                    clipBehavior: Clip.none,
+                    children: [
+                      Icon(
+                        Icons.notifications_outlined,
+                        color: AppColors.primary,
+                      ),
+                      if (count > 0)
+                        Positioned(
+                          right: -4,
+                          top: -4,
+                          child: Container(
+                            padding: const EdgeInsets.all(2),
+                            decoration: BoxDecoration(
+                              color: Colors.red,
+                              borderRadius: BorderRadius.circular(10),
+                              border: Border.all(color: AppColors.white, width: 1.5),
+                            ),
+                            constraints: const BoxConstraints(
+                              minWidth: 18,
+                              minHeight: 18,
+                            ),
+                            child: Text(
+                              count > 99 ? '99+' : '$count',
+                              style: const TextStyle(
+                                color: Colors.white,
+                                fontSize: 10,
+                                fontWeight: FontWeight.bold,
+                              ),
+                              textAlign: TextAlign.center,
+                            ),
+                          ),
+                        ),
+                    ],
+                  ),
+                  onPressed: () async {
+                    await Navigator.pushNamed(context, '/notifications');
+                    _notifService.refreshCount();
+                  },
+                );
               },
             ),
           ],
         ),
         // Main Content
-        body: CustomScrollView(
-          controller: _scrollController,
-          slivers: [
-            // Hero Section
-            SliverToBoxAdapter(child: _buildHeroSection()),
-
-            // Featured Modules Section
-            SliverToBoxAdapter(child: _buildFeaturedModules()),
-
-            // Content Sections
-            SliverToBoxAdapter(child: _buildContentSections()),
-
-            // Bottom Spacing untuk bottom nav
-            const SliverToBoxAdapter(child: SizedBox(height: 80)),
-          ],
+        body: RefreshIndicator(
+          onRefresh: _onRefresh,
+          color: AppColors.primary,
+          child: CustomScrollView(
+            controller: _scrollController,
+            slivers: [
+              SliverToBoxAdapter(child: _buildHeroSection()),
+              SliverToBoxAdapter(child: _buildFeaturedModules()),
+              SliverToBoxAdapter(child: _buildContentSections()),
+              const SliverToBoxAdapter(child: SizedBox(height: 80)),
+            ],
+          ),
         ),
       ),
     );
@@ -238,24 +304,24 @@ class _HomeScreenState extends State<HomeScreen> {
 
   Widget _buildHeroSection() {
     return Container(
-      margin: const EdgeInsets.fromLTRB(20, 16, 20, 12),
+      margin: const EdgeInsets.fromLTRB(16, 12, 16, 10),
       child: Stack(
         children: [
           // Background card with gradient
           Container(
-            padding: const EdgeInsets.all(28),
+            padding: const EdgeInsets.all(20),
             decoration: BoxDecoration(
               gradient: LinearGradient(
                 colors: [AppColors.primary, AppColors.secondary],
                 begin: Alignment.topLeft,
                 end: Alignment.bottomRight,
               ),
-              borderRadius: BorderRadius.circular(24),
+              borderRadius: BorderRadius.circular(20),
               boxShadow: [
                 BoxShadow(
                   color: AppColors.primary.withOpacity(0.3),
-                  blurRadius: 20,
-                  offset: const Offset(0, 8),
+                  blurRadius: 16,
+                  offset: const Offset(0, 6),
                 ),
               ],
             ),
@@ -265,12 +331,12 @@ class _HomeScreenState extends State<HomeScreen> {
                 // Welcome Badge
                 Container(
                   padding: const EdgeInsets.symmetric(
-                    horizontal: 14,
-                    vertical: 8,
+                    horizontal: 12,
+                    vertical: 6,
                   ),
                   decoration: BoxDecoration(
                     color: AppColors.white.withOpacity(0.25),
-                    borderRadius: BorderRadius.circular(24),
+                    borderRadius: BorderRadius.circular(18),
                     border: Border.all(
                       color: AppColors.white.withOpacity(0.3),
                       width: 1,
@@ -279,45 +345,46 @@ class _HomeScreenState extends State<HomeScreen> {
                   child: Row(
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      Text('👋', style: TextStyle(fontSize: 16)),
-                      const SizedBox(width: 8),
+                      Text('👋', style: TextStyle(fontSize: 14)),
+                      const SizedBox(width: 6),
                       Text(
                         'Selamat Datang',
                         style: AppTextStyles.labelMedium.copyWith(
                           color: AppColors.white,
                           fontWeight: FontWeight.w600,
+                          fontSize: 13,
                         ),
                       ),
                     ],
                   ),
                 ),
-                const SizedBox(height: 20),
+                const SizedBox(height: 14),
 
                 // User Name
                 Text(
                   _userName,
                   style: AppTextStyles.heading.copyWith(
-                    fontSize: 32,
+                    fontSize: 24,
                     fontWeight: FontWeight.bold,
                     color: AppColors.white,
                     height: 1.2,
                   ),
                 ),
-                const SizedBox(height: 16),
+                const SizedBox(height: 12),
 
                 // Description
                 Container(
-                  padding: const EdgeInsets.only(right: 20),
+                  padding: const EdgeInsets.only(right: 16),
                   child: Text(
                     'Platform pembelajaran digital untuk meningkatkan kompetensi Anda. Mari bersama membangun Indonesia yang lebih sehat!',
                     style: AppTextStyles.bodyMedium.copyWith(
                       color: AppColors.white.withOpacity(0.95),
-                      height: 1.6,
-                      fontSize: 15,
+                      height: 1.5,
+                      fontSize: 13,
                     ),
                   ),
                 ),
-                const SizedBox(height: 28),
+                const SizedBox(height: 18),
 
                 // CTA Button
                 Container(
@@ -326,7 +393,7 @@ class _HomeScreenState extends State<HomeScreen> {
                     onPressed: () {
                       Navigator.pushReplacementNamed(context, '/modul');
                     },
-                    icon: Icon(Icons.menu_book_rounded, size: 20),
+                    icon: Icon(Icons.menu_book_rounded, size: 18),
                     label: const Text('Jelajahi Modul Pembelajaran'),
                     style: ElevatedButton.styleFrom(
                       backgroundColor: AppColors.white,
@@ -334,14 +401,14 @@ class _HomeScreenState extends State<HomeScreen> {
                       elevation: 4,
                       shadowColor: Colors.black.withOpacity(0.2),
                       padding: const EdgeInsets.symmetric(
-                        horizontal: 24,
-                        vertical: 18,
+                        horizontal: 20,
+                        vertical: 14,
                       ),
                       shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(16),
+                        borderRadius: BorderRadius.circular(14),
                       ),
                       textStyle: AppTextStyles.button.copyWith(
-                        fontSize: 15,
+                        fontSize: 14,
                         fontWeight: FontWeight.w600,
                       ),
                     ),
@@ -356,8 +423,8 @@ class _HomeScreenState extends State<HomeScreen> {
             top: -30,
             right: -30,
             child: Container(
-              width: 120,
-              height: 120,
+              width: 100,
+              height: 100,
               decoration: BoxDecoration(
                 shape: BoxShape.circle,
                 color: AppColors.white.withOpacity(0.1),
@@ -368,8 +435,8 @@ class _HomeScreenState extends State<HomeScreen> {
             bottom: 20,
             right: 40,
             child: Container(
-              width: 80,
-              height: 80,
+              width: 60,
+              height: 60,
               decoration: BoxDecoration(
                 shape: BoxShape.circle,
                 color: AppColors.white.withOpacity(0.08),
@@ -383,37 +450,37 @@ class _HomeScreenState extends State<HomeScreen> {
 
   Widget _buildFeaturedModules() {
     return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 20),
+      padding: const EdgeInsets.symmetric(vertical: 16),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 20),
+            padding: const EdgeInsets.symmetric(horizontal: 16),
             child: Row(
               children: [
                 // Icon with gradient background
                 Container(
-                  padding: const EdgeInsets.all(10),
+                  padding: const EdgeInsets.all(8),
                   decoration: BoxDecoration(
                     gradient: LinearGradient(
                       colors: [AppColors.primary, AppColors.secondary],
                     ),
-                    borderRadius: BorderRadius.circular(12),
+                    borderRadius: BorderRadius.circular(10),
                     boxShadow: [
                       BoxShadow(
                         color: AppColors.primary.withOpacity(0.3),
-                        blurRadius: 8,
-                        offset: const Offset(0, 4),
+                        blurRadius: 6,
+                        offset: const Offset(0, 3),
                       ),
                     ],
                   ),
                   child: Icon(
                     Icons.library_books_rounded,
                     color: AppColors.white,
-                    size: 24,
+                    size: 20,
                   ),
                 ),
-                const SizedBox(width: 14),
+                const SizedBox(width: 12),
                 Expanded(
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
@@ -421,7 +488,7 @@ class _HomeScreenState extends State<HomeScreen> {
                       Text(
                         'Modul Pembelajaran',
                         style: AppTextStyles.heading.copyWith(
-                          fontSize: 22,
+                          fontSize: 18,
                           fontWeight: FontWeight.bold,
                         ),
                       ),
@@ -430,7 +497,7 @@ class _HomeScreenState extends State<HomeScreen> {
                         'Pilih modul untuk memulai belajar',
                         style: AppTextStyles.labelMedium.copyWith(
                           color: AppColors.gray500,
-                          fontSize: 13,
+                          fontSize: 12,
                         ),
                       ),
                     ],
@@ -439,7 +506,7 @@ class _HomeScreenState extends State<HomeScreen> {
               ],
             ),
           ),
-          const SizedBox(height: 20),
+          const SizedBox(height: 16),
           _isLoadingModules
               ? Container(
                 height: 200,
@@ -549,21 +616,21 @@ class _HomeScreenState extends State<HomeScreen> {
     return GestureDetector(
       onTap: onTap,
       child: Container(
-        width: 180,
-        margin: const EdgeInsets.only(right: 16),
+        width: 160,
+        margin: const EdgeInsets.only(right: 12),
         decoration: BoxDecoration(
           color: AppColors.white,
-          borderRadius: BorderRadius.circular(20),
+          borderRadius: BorderRadius.circular(16),
           border: Border.all(color: color.withOpacity(0.15), width: 1.5),
           boxShadow: [
             BoxShadow(
               color: color.withOpacity(0.12),
-              blurRadius: 16,
-              offset: const Offset(0, 6),
+              blurRadius: 12,
+              offset: const Offset(0, 4),
             ),
             BoxShadow(
               color: Colors.black.withOpacity(0.04),
-              blurRadius: 8,
+              blurRadius: 6,
               offset: const Offset(0, 2),
             ),
           ],
@@ -573,30 +640,30 @@ class _HomeScreenState extends State<HomeScreen> {
           children: [
             // Icon container with gradient
             Container(
-              margin: const EdgeInsets.all(16),
-              padding: const EdgeInsets.all(18),
+              margin: const EdgeInsets.all(12),
+              padding: const EdgeInsets.all(14),
               decoration: BoxDecoration(
                 gradient: LinearGradient(
                   colors: [color.withOpacity(0.15), color.withOpacity(0.08)],
                   begin: Alignment.topLeft,
                   end: Alignment.bottomRight,
                 ),
-                borderRadius: BorderRadius.circular(16),
+                borderRadius: BorderRadius.circular(12),
               ),
-              child: Icon(icon, size: 36, color: color),
+              child: Icon(icon, size: 28, color: color),
             ),
 
             // Title
             Expanded(
               child: Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 16),
+                padding: const EdgeInsets.symmetric(horizontal: 12),
                 child: Text(
                   title,
                   maxLines: 2,
                   overflow: TextOverflow.ellipsis,
                   style: AppTextStyles.labelLarge.copyWith(
                     fontWeight: FontWeight.w600,
-                    fontSize: 15,
+                    fontSize: 14,
                     height: 1.3,
                     color: AppColors.gray800,
                   ),
@@ -606,7 +673,7 @@ class _HomeScreenState extends State<HomeScreen> {
 
             // Progress section
             Padding(
-              padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
+              padding: const EdgeInsets.fromLTRB(12, 6, 12, 12),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
@@ -618,7 +685,7 @@ class _HomeScreenState extends State<HomeScreen> {
                         'Progress',
                         style: AppTextStyles.labelSmall.copyWith(
                           color: AppColors.gray500,
-                          fontSize: 11,
+                          fontSize: 10,
                           fontWeight: FontWeight.w500,
                         ),
                       ),
@@ -626,16 +693,16 @@ class _HomeScreenState extends State<HomeScreen> {
                         '${progress.toInt()}%',
                         style: AppTextStyles.labelSmall.copyWith(
                           color: color,
-                          fontSize: 12,
+                          fontSize: 11,
                           fontWeight: FontWeight.w700,
                         ),
                       ),
                     ],
                   ),
-                  const SizedBox(height: 8),
+                  const SizedBox(height: 6),
                   // Progress Bar
                   Container(
-                    height: 6,
+                    height: 5,
                     decoration: BoxDecoration(
                       color: color.withOpacity(0.12),
                       borderRadius: BorderRadius.circular(3),
@@ -1420,16 +1487,17 @@ class _HomeScreenState extends State<HomeScreen> {
                                 width: 1,
                               ),
                             ),
-                            child: SvgPicture.asset(
+                            child: Image.asset(
                               logoPath,
                               height: 50,
                               fit: BoxFit.contain,
-                              placeholderBuilder:
-                                  (context) => Icon(
-                                    Icons.business_rounded,
-                                    size: 40,
-                                    color: AppColors.gray400,
-                                  ),
+                              errorBuilder: (context, error, stackTrace) {
+                                return Icon(
+                                  Icons.business_rounded,
+                                  size: 40,
+                                  color: AppColors.gray400,
+                                );
+                              },
                             ),
                           ),
                         );

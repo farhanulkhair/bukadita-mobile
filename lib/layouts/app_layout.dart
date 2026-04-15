@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../components/navigation/navigation.dart';
+import '../components/note/notes_fab.dart';
 
 /// App Layout - Layout wrapper untuk halaman utama dengan Bottom Navigation
 ///
@@ -23,14 +24,13 @@ class AppLayout extends StatelessWidget {
         currentIndex: currentIndex,
         onTap: (index) => _handleNavigation(context, index),
       ),
+      floatingActionButton: const NotesFab(),
     );
   }
 
   void _handleNavigation(BuildContext context, int index) {
-    // Jangan navigate jika sudah di halaman yang sama
     if (index == currentIndex) return;
 
-    // Navigate ke halaman yang sesuai
     switch (index) {
       case 0:
         Navigator.pushReplacementNamed(context, '/home');

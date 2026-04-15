@@ -64,6 +64,13 @@ dependencies:
 
   # Email Validation
   email_validator: ^2.1.17
+  pdf: ^3.11.3
+  printing: ^5.14.3
+  share_plus: ^12.0.2
+  path_provider: ^2.1.5
+  intl: ^0.20.2
+  permission_handler: ^12.0.1
+  flutter_local_notifications: ^19.5.0
 
 dev_dependencies:
   flutter_test:
@@ -125,6 +132,7 @@ flutter:
 flutter_launcher_icons:
   android: true
   ios: true
-  image_path: "assets/icon/icon-72x72.png"
-  adaptive_icon_background: "#578FCA"
-  adaptive_icon_foreground: "assets/icon/icon-72x72.png"
+  image_path: "assets/icon/icon-512x512.png"
+  adaptive_icon_background: "#FFFFFF"
+  adaptive_icon_foreground: "assets/icon/icon-512x512.png"
+  min_sdk_android: 21

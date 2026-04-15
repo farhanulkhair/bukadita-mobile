@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 
 /// ============================================
-/// APP THEME - Semua styling aplikasi BukaDita
+/// APP THEME - Semua styling aplikasi Bukadita
 /// ============================================
 
 class AppTheme {
@@ -298,6 +298,7 @@ class AppColors {
   static const Color red600 = AppTheme.red600;
   static const Color red700 = AppTheme.red700;
   static const Color orange50 = AppTheme.orange50;
+  static const Color orange500 = AppTheme.orange500;
   static const Color orange600 = AppTheme.orange600;
   static const Color green50 = AppTheme.green50;
   static const Color green200 = AppTheme.green200;

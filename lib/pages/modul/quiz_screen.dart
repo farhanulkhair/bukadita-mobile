@@ -1,6 +1,8 @@
+import 'dart:math';
 import 'package:flutter/material.dart';
 import '../../theme/theme.dart';
 import '../../services/quiz_service.dart';
+import '../../services/cache_service.dart';
 
 /// Quiz Overview Screen - Halaman overview kuis sebelum memulai
 class QuizScreen extends StatefulWidget {
@@ -39,170 +41,133 @@ class _QuizScreenState extends State<QuizScreen> {
   }
 
   Future<void> _loadQuizData() async {
-    setState(() => _isLoading = true);
+    if (mounted) {
+      setState(() => _isLoading = true);
+    }
 
     try {
-      // Load quiz detail dengan soal-soal
-      final quizResult = await _quizService.getQuizDetail(_quizId);
+      final parallel = await Future.wait([
+        _quizService.getQuizDetail(_quizId),
+        _quizService.getMyQuizAttempts(
+          limit: 100,
+          moduleId: _moduleId,
+        ),
+      ]);
 
-      if (quizResult['success'] && mounted) {
+      if (!mounted) return;
+
+      final quizResult = parallel[0];
+      final historyResult = parallel[1];
+
+      if (quizResult['success']) {
         final quiz = quizResult['data'];
         final questions =
             (quiz['questions'] as List?)
                 ?.map((q) => q as Map<String, dynamic>)
                 .toList() ??
             [];
-
-        // Load quiz history/results by module (sesuai web app)
-        final moduleId = _moduleId;
-        final historyResult = await _quizService.getMyQuizAttempts(
-          limit: 100,
-          moduleId: moduleId, // Pass module_id untuk filter
-        );
         List<Map<String, dynamic>> history = [];
 
         if (historyResult['success']) {
           final responseData = historyResult['data'];
 
-          List results = [];
+          List attemptsList = [];
 
-          // Handle API response structure: {data: {attempts: [...]}}
           if (responseData is Map && responseData.containsKey('attempts')) {
-            results = responseData['attempts'] as List? ?? [];
+            attemptsList = responseData['attempts'] as List? ?? [];
           } else if (responseData is Map && responseData.containsKey('items')) {
-            results = responseData['items'] as List? ?? [];
+            attemptsList = responseData['items'] as List? ?? [];
           } else if (responseData is List) {
-            results = responseData;
+            attemptsList = responseData;
           }
 
-          // Debug: Print untuk cek data
           debugPrint(
-            '📊 [QUIZ_HISTORY] Total attempts fetched: ${results.length}',
+            '📊 [QUIZ_HISTORY] Total attempts fetched: ${attemptsList.length}',
           );
-          debugPrint('📊 [QUIZ_HISTORY] Current material ID: $_materialId');
 
-          // Filter berdasarkan sub_materi_id dari nested quiz object (sesuai web app)
-          results =
-              results.where((r) {
+          attemptsList =
+              attemptsList.where((r) {
                 if (r is! Map) return false;
-
-                // Get nested quiz object
                 final quiz = r['quiz'];
-                if (quiz == null || quiz is! Map) {
-                  debugPrint(
-                    '⚠️ [QUIZ_HISTORY] Attempt tanpa quiz object: ${r['id']}',
-                  );
-                  return false;
-                }
-
-                // Check sub_materi_id (snake_case!)
+                if (quiz == null || quiz is! Map) return false;
                 final attemptSubMateriId =
                     quiz['sub_materi_id']?.toString() ?? '';
-                final currentMaterialId = _materialId.toString();
-                final matches = attemptSubMateriId == currentMaterialId;
-
-                debugPrint(
-                  '📊 [QUIZ_HISTORY] Comparing sub_materi_id: "$attemptSubMateriId" == "$currentMaterialId" = $matches',
-                );
-                return matches;
+                return attemptSubMateriId == _materialId.toString();
               }).toList();
 
           debugPrint(
-            '✅ [QUIZ_HISTORY] Filtered attempts for this material: ${results.length}',
+            '✅ [QUIZ_HISTORY] Filtered attempts for this material: ${attemptsList.length}',
           );
 
           try {
             history =
-                results.map((r) {
-                  try {
-                    final score = _safeInt(r['score']);
-                    final passed =
-                        r['passed'] ??
-                        (score >= 70); // Use passed flag or calculate
+                attemptsList.map((r) {
+                  final score = _safeInt(r['score']);
+                  final passed = r['passed'] ?? (score >= 70);
 
-                    // Calculate time spent from timestamps if time_taken_seconds not available
-                    int timeSpent = 0;
-                    if (r.containsKey('time_taken_seconds')) {
-                      timeSpent = _safeInt(r['time_taken_seconds']);
-                    } else if (r['started_at'] != null &&
-                        r['completed_at'] != null) {
-                      try {
-                        final start = DateTime.parse(r['started_at']);
-                        final end = DateTime.parse(r['completed_at']);
-                        timeSpent = end.difference(start).inSeconds;
-                      } catch (e) {
-                        debugPrint('⚠️ [QUIZ_HISTORY] Error parsing dates: $e');
-                      }
-                    }
-
-                    final historyItem = {
-                      'attemptDate': _formatDate(
-                        r['completed_at'] ??
-                            r['submitted_at'] ??
-                            r['created_at'],
-                      ),
-                      'score': score,
-                      'correctCount': _safeInt(
-                        r['correct_answers'] ?? r['correct_count'],
-                      ),
-                      'totalQuestions': _safeInt(
-                        r['total_questions'],
-                        defaultValue: questions.length,
-                      ),
-                      'timeSpent': _formatTime(timeSpent),
-                      'status': passed ? 'passed' : 'failed',
-                    };
-
-                    debugPrint('📋 [QUIZ_HISTORY] History item: $historyItem');
-                    return historyItem;
-                  } catch (e) {
-                    debugPrint('⚠️ [QUIZ_HISTORY] Error mapping item: $e');
-                    // Return a placeholder or rethrow
-                    rethrow;
+                  int timeSpent = 0;
+                  if (r.containsKey('time_taken_seconds')) {
+                    timeSpent = _safeInt(r['time_taken_seconds']);
+                  } else if (r['started_at'] != null &&
+                      r['completed_at'] != null) {
+                    try {
+                      final start = DateTime.parse(r['started_at']);
+                      final end = DateTime.parse(r['completed_at']);
+                      timeSpent = end.difference(start).inSeconds;
+                    } catch (_) {}
                   }
-                }).toList();
 
-            debugPrint(
-              '📋 [QUIZ_HISTORY] Total history items created: ${history.length}',
-            );
+                  return {
+                    'attemptDate': _formatDate(
+                      r['completed_at'] ??
+                          r['submitted_at'] ??
+                          r['created_at'],
+                    ),
+                    'score': score,
+                    'correctCount': _safeInt(
+                      r['correct_answers'] ?? r['correct_count'],
+                    ),
+                    'totalQuestions': _safeInt(
+                      r['total_questions'],
+                      defaultValue: questions.length,
+                    ),
+                    'timeSpent': _formatTime(timeSpent),
+                    'status': passed ? 'passed' : 'failed',
+                  };
+                }).toList();
           } catch (e) {
             debugPrint('❌ [QUIZ_HISTORY] Error during mapping: $e');
-            history = []; // Fallback to empty list
+            history = [];
           }
-        } else {
-          // History API failed
         }
 
+        if (!mounted) return;
         setState(() {
           _quizTitle = quiz['title'] ?? 'Kuis';
           _questions = questions;
           _totalQuestions = questions.length;
-          // Convert seconds to minutes
           final timeLimitSeconds =
               (quiz['time_limit_seconds'] as num?)?.toInt() ?? 900;
-          _timeLimit = (timeLimitSeconds / 60).ceil(); // Convert to minutes
+          _timeLimit = (timeLimitSeconds / 60).ceil();
           _quizHistory = history;
           _isLoading = false;
-
-          debugPrint(
-            '🎯 [QUIZ_HISTORY] setState completed. _quizHistory.length = ${_quizHistory.length}',
-          );
         });
       } else {
+        if (!mounted) return;
         setState(() => _isLoading = false);
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text(quizResult['message'] ?? 'Gagal memuat kuis'),
-              backgroundColor: AppColors.red600,
-            ),
-          );
-        }
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(quizResult['message'] ?? 'Gagal memuat kuis'),
+            backgroundColor: AppColors.red600,
+          ),
+        );
       }
     } catch (e, stackTrace) {
       debugPrint('❌ [QUIZ_HISTORY] Error loading quiz data: $e');
       debugPrint('❌ [QUIZ_HISTORY] Stack trace: $stackTrace');
-      setState(() => _isLoading = false);
+      if (mounted) {
+        setState(() => _isLoading = false);
+      }
     }
   }
 
@@ -253,6 +218,10 @@ class _QuizScreenState extends State<QuizScreen> {
   }
 
   void _startQuiz() {
+    // Shuffle questions so each attempt has a different order
+    final shuffledQuestions = List<Map<String, dynamic>>.from(_questions)
+      ..shuffle(Random());
+
     Navigator.pushNamed(
       context,
       '/quiz-questions',
@@ -262,18 +231,18 @@ class _QuizScreenState extends State<QuizScreen> {
         'moduleId': _moduleId,
         'quizTitle': _quizTitle,
         'poinTitle': _poinTitle,
-        'questions': _questions,
+        'questions': shuffledQuestions,
         'timeLimit': _timeLimit,
       },
     ).then((result) {
-      // Ketika kembali dari quiz questions dengan hasil
+      if (!mounted) return;
       if (result != null && result is Map<String, dynamic>) {
-        // Reload quiz data to refresh history
-        _loadQuizData();
-
-        // Pass result kembali ke material_poin_detail_screen
-        // Sehingga material bisa di-mark as completed
+        // Invalidate quiz attempt cache so it refreshes next time
+        CacheService().removeByPrefix('quiz_attempts_');
         Navigator.pop(context, result);
+      } else {
+        // User came back without submitting — refresh history in case
+        _loadQuizData();
       }
     });
   }
@@ -310,11 +279,15 @@ class _QuizScreenState extends State<QuizScreen> {
           ),
         ),
       ),
-      body: SingleChildScrollView(
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            // Quiz Info Card
+      body: RefreshIndicator(
+        onRefresh: () => _loadQuizData(),
+        color: AppColors.primary,
+        child: SingleChildScrollView(
+          physics: const AlwaysScrollableScrollPhysics(),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              // Quiz Info Card
             Container(
               margin: const EdgeInsets.all(16),
               padding: const EdgeInsets.all(20),
@@ -634,6 +607,7 @@ class _QuizScreenState extends State<QuizScreen> {
             const SizedBox(height: 100),
           ],
         ),
+      ),
       ),
       bottomNavigationBar: Container(
         padding: const EdgeInsets.all(16),

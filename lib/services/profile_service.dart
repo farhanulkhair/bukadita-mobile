@@ -4,6 +4,7 @@ import 'package:http_parser/http_parser.dart';
 import 'dart:convert';
 import '../config/api_config.dart';
 import '../models/user_model.dart';
+import '../utils/error_helper.dart';
 import './storage_service.dart';
 
 /// Service untuk mengelola profil user
@@ -16,7 +17,7 @@ class ProfileService {
       // Get token
       final token = await _storageService.getAccessToken();
       if (token == null) {
-        throw Exception('Token tidak ditemukan');
+        throw Exception('Sesi Anda telah berakhir. Silakan login kembali.');
       }
 
       final uri = Uri.parse('${ApiConfig.baseUrl}/users/me');
@@ -27,29 +28,26 @@ class ProfileService {
 
       if (response.statusCode == 200) {
         final data = json.decode(response.body);
-        
+
         // Update user data di storage
         if (data['data'] != null) {
           final userData = UserModel.fromJson(data['data']);
           await _storageService.saveUserData(userData);
-          
+
           return {
             'success': true,
             'message': 'Berhasil mendapatkan data user',
             'data': userData,
           };
         }
-        
-        return {
-          'success': false,
-          'message': 'Data user tidak ditemukan',
-        };
+
+        return {'success': false, 'message': 'Data user tidak ditemukan'};
       } else {
         final error = json.decode(response.body);
         throw Exception(error['message'] ?? 'Gagal mendapatkan data user');
       }
     } catch (e) {
-      throw Exception('Error get user profile: $e');
+      throw Exception(friendlyErrorMessage(e));
     }
   }
 
@@ -61,13 +59,11 @@ class ProfileService {
       // Get token
       final token = await _storageService.getAccessToken();
       if (token == null) {
-        throw Exception('Token tidak ditemukan');
+        throw Exception('Sesi Anda telah berakhir. Silakan login kembali.');
       }
 
       // Prepare multipart request
-      final uri = Uri.parse(
-        '${ApiConfig.baseUrl}/users/me/profile-photo',
-      );
+      final uri = Uri.parse('${ApiConfig.baseUrl}/users/me/profile-photo');
       final request = http.MultipartRequest('POST', uri);
 
       // Add headers
@@ -96,7 +92,8 @@ class ProfileService {
         final userData = await _storageService.getUserData();
         if (userData != null && data['data'] != null) {
           // API returns 'profil_url', but we store as 'avatar'
-          final avatarUrl = data['data']['profil_url'] ?? data['data']['avatar'];
+          final avatarUrl =
+              data['data']['profil_url'] ?? data['data']['avatar'];
           final updatedUser = userData.copyWith(avatar: avatarUrl);
           await _storageService.saveUserData(updatedUser);
         }
@@ -111,7 +108,7 @@ class ProfileService {
         throw Exception(error['message'] ?? 'Gagal upload foto profil');
       }
     } catch (e) {
-      throw Exception('Error upload foto: $e');
+      throw Exception(friendlyErrorMessage(e));
     }
   }
 
@@ -121,12 +118,10 @@ class ProfileService {
       // Get token
       final token = await _storageService.getAccessToken();
       if (token == null) {
-        throw Exception('Token tidak ditemukan');
+        throw Exception('Sesi Anda telah berakhir. Silakan login kembali.');
       }
 
-      final uri = Uri.parse(
-        '${ApiConfig.baseUrl}/users/me/profile-photo',
-      );
+      final uri = Uri.parse('${ApiConfig.baseUrl}/users/me/profile-photo');
       final response = await http.delete(
         uri,
         headers: ApiConfig.authHeaders(token),
@@ -148,7 +143,7 @@ class ProfileService {
         throw Exception(error['message'] ?? 'Gagal hapus foto profil');
       }
     } catch (e) {
-      throw Exception('Error delete foto: $e');
+      throw Exception(friendlyErrorMessage(e));
     }
   }
 
@@ -163,7 +158,7 @@ class ProfileService {
       // Get token
       final token = await _storageService.getAccessToken();
       if (token == null) {
-        throw Exception('Token tidak ditemukan');
+        throw Exception('Sesi Anda telah berakhir. Silakan login kembali.');
       }
 
       final uri = Uri.parse('${ApiConfig.baseUrl}/users/me');
@@ -188,7 +183,8 @@ class ProfileService {
             name: data['data']['full_name'] ?? userData.name,
             phone: data['data']['phone'] ?? userData.phone,
             address: data['data']['address'] ?? userData.address,
-            date_of_birth: data['data']['date_of_birth'] ?? userData.date_of_birth,
+            date_of_birth:
+                data['data']['date_of_birth'] ?? userData.date_of_birth,
           );
           await _storageService.saveUserData(updatedUser);
         }
@@ -203,7 +199,7 @@ class ProfileService {
         throw Exception(error['message'] ?? 'Gagal update profil');
       }
     } catch (e) {
-      throw Exception('Error update profil: $e');
+      throw Exception(friendlyErrorMessage(e));
     }
   }
 
@@ -222,6 +218,48 @@ class ProfileService {
         return 'image/webp';
       default:
         return 'image/jpeg';
+    }
+  }
+
+  /// Change password
+  /// [oldPassword] - Password lama user
+  /// [newPassword] - Password baru yang diinginkan
+  Future<Map<String, dynamic>> changePassword({
+    required String oldPassword,
+    required String newPassword,
+  }) async {
+    try {
+      // Get token
+      final token = await _storageService.getAccessToken();
+      if (token == null) {
+        throw Exception('Sesi Anda telah berakhir. Silakan login kembali.');
+      }
+
+      final uri = Uri.parse('${ApiConfig.baseUrl}/users/me/change-password');
+      final response = await http.post(
+        uri,
+        headers: ApiConfig.authHeaders(token),
+        body: json.encode({
+          'old_password': oldPassword,
+          'new_password': newPassword,
+        }),
+      );
+
+      if (response.statusCode == 200) {
+        final data = json.decode(response.body);
+        return {
+          'success': true,
+          'message': data['message'] ?? 'Password berhasil diubah',
+        };
+      } else {
+        final error = json.decode(response.body);
+        return {
+          'success': false,
+          'message': error['message'] ?? 'Gagal mengubah password',
+        };
+      }
+    } catch (e) {
+      return {'success': false, 'message': friendlyErrorMessage(e)};
     }
   }
 }

@@ -4,6 +4,7 @@ import '../../theme/theme.dart';
 import '../../services/storage_service.dart';
 import '../../services/profile_service.dart';
 import '../../models/user_model.dart';
+import '../../utils/error_helper.dart';
 
 /// Full Data Screen - Halaman untuk melihat data lengkap user
 class FullDataScreen extends StatefulWidget {
@@ -44,45 +45,12 @@ class _FullDataScreenState extends State<FullDataScreen> {
     }
   }
 
-  /// Refresh data dari API
-  // Future<void> _refreshFromAPI() async {
-  //   setState(() {
-  //     _isLoading = true;
-  //   });
-
-  //   try {
-  //     final result = await _profileService.getCurrentUserProfile();
-
-  //     if (result['success'] == true) {
-  //       // Reload dari storage (sudah diupdate oleh service)
-  //       await _loadUserData();
-
-  //       if (mounted) {
-  //         ScaffoldMessenger.of(context).showSnackBar(
-  //           const SnackBar(
-  //             content: Text('Data berhasil direfresh dari server'),
-  //             backgroundColor: Colors.green,
-  //           ),
-  //         );
-  //       }
-  //     }
-  //   } catch (e) {
-  //     if (mounted) {
-  //       ScaffoldMessenger.of(context).showSnackBar(
-  //         SnackBar(
-  //           content: Text('Gagal refresh: $e'),
-  //           backgroundColor: Colors.red,
-  //         ),
-  //       );
-  //     }
-  //   } finally {
-  //     if (mounted) {
-  //       setState(() {
-  //         _isLoading = false;
-  //       });
-  //     }
-  //   }
-  // }
+  Future<void> _refreshFromAPI() async {
+    try {
+      await _profileService.getCurrentUserProfile();
+      await _loadUserData();
+    } catch (_) {}
+  }
 
   /// Format tanggal untuk ditampilkan
   String _formatDate(String? dateString) {
@@ -304,7 +272,7 @@ class _FullDataScreenState extends State<FullDataScreen> {
               children: [
                 const Icon(Icons.error, color: AppColors.white),
                 const SizedBox(width: 12),
-                Expanded(child: Text('Gagal update: $e')),
+                Expanded(child: Text(friendlyErrorMessage(e))),
               ],
             ),
             backgroundColor: AppColors.red600,
@@ -340,8 +308,12 @@ class _FullDataScreenState extends State<FullDataScreen> {
       body:
           _isLoading
               ? const Center(child: CircularProgressIndicator())
-              : SingleChildScrollView(
-                child: Padding(
+              : RefreshIndicator(
+                onRefresh: _refreshFromAPI,
+                color: AppColors.primary,
+                child: SingleChildScrollView(
+                  physics: const AlwaysScrollableScrollPhysics(),
+                  child: Padding(
                   padding: const EdgeInsets.all(20),
                   child: Column(
                     children: [
@@ -385,20 +357,21 @@ class _FullDataScreenState extends State<FullDataScreen> {
                   ),
                 ),
               ),
+              ),
     );
   }
 
   Widget _buildInfoCard() {
     return Container(
-      padding: const EdgeInsets.all(20),
+      padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
         color: AppColors.white,
-        borderRadius: BorderRadius.circular(20),
+        borderRadius: BorderRadius.circular(16),
         boxShadow: [
           BoxShadow(
             color: AppColors.gray500.withOpacity(0.08),
-            blurRadius: 20,
-            offset: const Offset(0, 4),
+            blurRadius: 12,
+            offset: const Offset(0, 3),
           ),
         ],
       ),
@@ -408,45 +381,46 @@ class _FullDataScreenState extends State<FullDataScreen> {
           Row(
             children: [
               Container(
-                padding: const EdgeInsets.all(10),
+                padding: const EdgeInsets.all(8),
                 decoration: BoxDecoration(
                   gradient: AppColors.primaryGradient,
-                  borderRadius: BorderRadius.circular(12),
+                  borderRadius: BorderRadius.circular(10),
                 ),
-                child: Icon(LucideIcons.user, color: AppColors.white, size: 24),
+                child: Icon(LucideIcons.user, color: AppColors.white, size: 20),
               ),
-              const SizedBox(width: 12),
+              const SizedBox(width: 10),
               Text(
                 'Informasi Pribadi',
                 style: AppTextStyles.headingSmall.copyWith(
                   fontWeight: FontWeight.bold,
                   color: AppColors.gray800,
+                  fontSize: 16,
                 ),
               ),
             ],
           ),
-          const SizedBox(height: 24),
+          const SizedBox(height: 18),
           _buildInfoField(
             'Nama Lengkap',
             _currentUser?.name ?? '-',
             LucideIcons.user,
             () => _showEditDialog('name', 'Nama Lengkap', _currentUser?.name),
           ),
-          const SizedBox(height: 16),
+          const SizedBox(height: 12),
           _buildInfoField(
             'Email',
             _currentUser?.email ?? '-',
             LucideIcons.mail,
             null,
           ),
-          const SizedBox(height: 16),
+          const SizedBox(height: 12),
           _buildInfoField(
             'Nomor HP',
             _currentUser?.phone ?? '-',
             LucideIcons.phone,
             () => _showEditDialog('phone', 'Nomor HP', _currentUser?.phone),
           ),
-          const SizedBox(height: 16),
+          const SizedBox(height: 12),
           _buildInfoField(
             'Alamat',
             _currentUser?.address ?? '-',
@@ -458,7 +432,7 @@ class _FullDataScreenState extends State<FullDataScreen> {
               isMultiline: true,
             ),
           ),
-          const SizedBox(height: 16),
+          const SizedBox(height: 12),
           _buildInfoField(
             'Tanggal Lahir',
             _formatDate(_currentUser?.date_of_birth),
@@ -477,23 +451,23 @@ class _FullDataScreenState extends State<FullDataScreen> {
     VoidCallback? onEdit,
   ) {
     return Container(
-      padding: const EdgeInsets.all(16),
+      padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
         color: AppColors.gray50,
-        borderRadius: BorderRadius.circular(12),
+        borderRadius: BorderRadius.circular(10),
         border: Border.all(color: AppColors.gray200, width: 1),
       ),
       child: Row(
         children: [
           Container(
-            padding: const EdgeInsets.all(8),
+            padding: const EdgeInsets.all(6),
             decoration: BoxDecoration(
               color: AppColors.primary.withOpacity(0.1),
-              borderRadius: BorderRadius.circular(8),
+              borderRadius: BorderRadius.circular(7),
             ),
-            child: Icon(icon, size: 20, color: AppColors.primary),
+            child: Icon(icon, size: 18, color: AppColors.primary),
           ),
-          const SizedBox(width: 12),
+          const SizedBox(width: 10),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -503,13 +477,15 @@ class _FullDataScreenState extends State<FullDataScreen> {
                   style: AppTextStyles.labelSmall.copyWith(
                     color: AppColors.gray500,
                     fontWeight: FontWeight.w500,
+                    fontSize: 11,
                   ),
                 ),
-                const SizedBox(height: 4),
+                const SizedBox(height: 3),
                 Text(
                   value.isNotEmpty ? value : 'Belum diisi',
                   style: AppTextStyles.bodyMedium.copyWith(
                     fontWeight: FontWeight.w600,
+                    fontSize: 14,
                     color:
                         value.isNotEmpty
                             ? AppColors.gray700
@@ -522,22 +498,18 @@ class _FullDataScreenState extends State<FullDataScreen> {
             ),
           ),
           if (onEdit != null) ...[
-            const SizedBox(width: 8),
+            const SizedBox(width: 6),
             InkWell(
               onTap: onEdit,
-              borderRadius: BorderRadius.circular(8),
+              borderRadius: BorderRadius.circular(6),
               child: Container(
-                padding: const EdgeInsets.all(8),
+                padding: const EdgeInsets.all(6),
                 decoration: BoxDecoration(
                   color: AppColors.white,
-                  borderRadius: BorderRadius.circular(8),
+                  borderRadius: BorderRadius.circular(6),
                   border: Border.all(color: AppColors.primary.withOpacity(0.3)),
                 ),
-                child: Icon(
-                  Icons.edit,
-                  size: 18,
-                  color: AppColors.primary,
-                ),
+                child: Icon(Icons.edit, size: 16, color: AppColors.primary),
               ),
             ),
           ],

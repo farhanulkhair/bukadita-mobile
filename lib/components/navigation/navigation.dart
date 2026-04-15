@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../../theme/theme.dart';
 import '../../services/storage_service.dart';
+import '../../services/notification_service.dart';
 
 /// Resizable Navbar Component dengan scroll detection
 /// Navbar akan mengecil dan berubah style saat user scroll
@@ -231,15 +232,51 @@ class _ResizableNavbarState extends State<ResizableNavbar>
       mainAxisSize: MainAxisSize.min,
       children: [
         if (_isLoggedIn) ...[
-          // Notification Button
-          IconButton(
-            icon: Icon(
-              Icons.notifications_outlined,
-              color: _isScrolled ? AppColors.white : AppColors.primary,
-              size: 22,
-            ),
-            onPressed: () {
-              // TODO: Handle notification
+          ValueListenableBuilder<int>(
+            valueListenable: NotificationService().unreadCount,
+            builder: (context, count, _) {
+              return IconButton(
+                icon: Stack(
+                  clipBehavior: Clip.none,
+                  children: [
+                    Icon(
+                      Icons.notifications_outlined,
+                      color: _isScrolled ? AppColors.white : AppColors.primary,
+                      size: 22,
+                    ),
+                    if (count > 0)
+                      Positioned(
+                        right: -4,
+                        top: -4,
+                        child: Container(
+                          padding: const EdgeInsets.all(1.5),
+                          decoration: BoxDecoration(
+                            color: Colors.red,
+                            borderRadius: BorderRadius.circular(8),
+                            border: Border.all(
+                              color: _isScrolled ? AppColors.secondary : AppColors.white,
+                              width: 1.5,
+                            ),
+                          ),
+                          constraints: const BoxConstraints(minWidth: 16, minHeight: 16),
+                          child: Text(
+                            count > 99 ? '99+' : '$count',
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontSize: 9,
+                              fontWeight: FontWeight.bold,
+                            ),
+                            textAlign: TextAlign.center,
+                          ),
+                        ),
+                      ),
+                  ],
+                ),
+                onPressed: () async {
+                  await Navigator.pushNamed(context, '/notifications');
+                  NotificationService().refreshCount();
+                },
+              );
             },
           ),
           const SizedBox(width: 4),

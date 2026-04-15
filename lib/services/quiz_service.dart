@@ -1,15 +1,43 @@
 import 'dart:convert';
+import 'dart:io';
 import 'package:http/http.dart' as http;
 import '../config/api_config.dart';
+import '../utils/error_helper.dart';
 import 'storage_service.dart';
+import 'cache_service.dart';
 
 /// Service untuk mengelola operasi terkait kuis
 class QuizService {
   final StorageService _storageService = StorageService();
+  final CacheService _cache = CacheService();
 
-  /// Get quizzes by material ID
-  /// Tries multiple endpoints with fallback mechanism
+  static const _maxRetries = 2;
+
+  Future<http.Response> _getWithRetry(
+    Uri url,
+    Map<String, String> headers,
+  ) async {
+    for (var attempt = 0; attempt <= _maxRetries; attempt++) {
+      try {
+        return await http.get(url, headers: headers);
+      } on SocketException {
+        if (attempt == _maxRetries) rethrow;
+        await Future.delayed(Duration(seconds: attempt + 1));
+      } on http.ClientException {
+        if (attempt == _maxRetries) rethrow;
+        await Future.delayed(Duration(seconds: attempt + 1));
+      }
+    }
+    throw const SocketException('Gagal terhubung setelah retry');
+  }
+
+  String _friendlyError(Object e) => friendlyErrorMessage(e);
+
+  /// Get quizzes by material ID (cache-first)
+  /// Get quizzes for a material — always fetch from API, cache as offline fallback
   Future<Map<String, dynamic>> getMaterialQuizzes(String materialId) async {
+    final cacheKey = 'material_quizzes_$materialId';
+
     final token = await _storageService.getAccessToken();
 
     // List of endpoints to try in order
@@ -56,11 +84,13 @@ class QuizService {
             quizList = [];
           }
 
-          return {
+          final result = {
             'success': true,
             'data': quizList,
-            'message': data['message'] ?? 'Quiz fetched successfully',
+            'message': data['message'] ?? 'Kuis berhasil dimuat',
           };
+          await _cache.set(cacheKey, result);
+          return result;
         } else if (response.statusCode == 404 && i < endpoints.length - 1) {
           // Try next endpoint on 404
           continue;
@@ -68,16 +98,16 @@ class QuizService {
           final data = json.decode(response.body);
           return {
             'success': false,
-            'message': data['message'] ?? 'Failed to fetch quiz',
+            'message': data['message'] ?? 'Gagal memuat kuis',
             'data': null,
           };
         }
       } catch (e) {
         if (i == endpoints.length - 1) {
-          // Last endpoint failed
-          return {'success': false, 'message': 'Error: $e', 'data': null};
+          final stale = await _cache.get(cacheKey);
+          if (stale != null) return stale;
+          return {'success': false, 'message': friendlyErrorMessage(e), 'data': null};
         }
-        // Try next endpoint
         continue;
       }
     }
@@ -85,42 +115,45 @@ class QuizService {
     // All endpoints failed
     return {
       'success': false,
-      'message': 'No quiz available for this material',
+      'message': 'Tidak ada kuis untuk materi ini',
       'data': [],
     };
   }
 
-  /// Get quiz detail by ID including questions
+  /// Get quiz detail by ID — always fetch from API, cache as offline fallback
   Future<Map<String, dynamic>> getQuizDetail(String quizId) async {
+    final cacheKey = 'quiz_detail_$quizId';
+
     try {
       final token = await _storageService.getAccessToken();
       final url = Uri.parse('${ApiConfig.baseUrl}/quizzes/$quizId');
 
-      final response = await http.get(
-        url,
-        headers: {
-          'Content-Type': 'application/json',
-          if (token != null) 'Authorization': 'Bearer $token',
-        },
-      );
+      final response = await _getWithRetry(url, {
+        'Content-Type': 'application/json',
+        if (token != null) 'Authorization': 'Bearer $token',
+      });
 
       final data = json.decode(response.body);
 
       if (response.statusCode == 200) {
-        return {
+        final result = {
           'success': true,
           'data': data['data'],
           'message': data['message'],
         };
+        await _cache.set(cacheKey, result);
+        return result;
       } else {
         return {
           'success': false,
-          'message': data['message'] ?? 'Failed to fetch quiz detail',
+          'message': data['message'] ?? 'Gagal memuat detail kuis',
           'data': null,
         };
       }
     } catch (e) {
-      return {'success': false, 'message': 'Error: $e', 'data': null};
+      final stale = await _cache.get(cacheKey);
+      if (stale != null) return stale;
+      return {'success': false, 'message': _friendlyError(e), 'data': null};
     }
   }
 
@@ -129,7 +162,7 @@ class QuizService {
     try {
       final token = await _storageService.getAccessToken();
       if (token == null) {
-        return {'success': false, 'message': 'Token tidak ditemukan'};
+        return {'success': false, 'message': 'Sesi Anda telah berakhir. Silakan login kembali.'};
       }
 
       final url = Uri.parse('${ApiConfig.baseUrl}/quizzes/start');
@@ -154,12 +187,12 @@ class QuizService {
       } else {
         return {
           'success': false,
-          'message': data['message'] ?? 'Failed to start quiz',
+          'message': data['message'] ?? 'Gagal memulai kuis',
           'data': null,
         };
       }
     } catch (e) {
-      return {'success': false, 'message': 'Error: $e', 'data': null};
+      return {'success': false, 'message': _friendlyError(e), 'data': null};
     }
   }
 
@@ -171,7 +204,7 @@ class QuizService {
     try {
       final token = await _storageService.getAccessToken();
       if (token == null) {
-        return {'success': false, 'message': 'Token tidak ditemukan'};
+        return {'success': false, 'message': 'Sesi Anda telah berakhir. Silakan login kembali.'};
       }
 
       final url = Uri.parse('${ApiConfig.baseUrl}/quizzes/submit');
@@ -200,12 +233,12 @@ class QuizService {
       } else {
         return {
           'success': false,
-          'message': data['message'] ?? 'Failed to submit quiz',
+          'message': data['message'] ?? 'Gagal mengirim jawaban kuis',
           'data': null,
         };
       }
     } catch (e) {
-      return {'success': false, 'message': 'Error: $e', 'data': null};
+      return {'success': false, 'message': _friendlyError(e), 'data': null};
     }
   }
 
@@ -214,7 +247,7 @@ class QuizService {
     try {
       final token = await _storageService.getAccessToken();
       if (token == null) {
-        return {'success': false, 'message': 'Token tidak ditemukan'};
+        return {'success': false, 'message': 'Sesi Anda telah berakhir. Silakan login kembali.'};
       }
 
       final url = Uri.parse('${ApiConfig.baseUrl}/quizzes/$quizId/results');
@@ -238,26 +271,29 @@ class QuizService {
       } else {
         return {
           'success': false,
-          'message': data['message'] ?? 'Failed to fetch results',
+          'message': data['message'] ?? 'Gagal memuat hasil kuis',
           'data': null,
         };
       }
     } catch (e) {
-      return {'success': false, 'message': 'Error: $e', 'data': null};
+      return {'success': false, 'message': _friendlyError(e), 'data': null};
     }
   }
 
-  /// Get my quiz attempts with optional module filter (sesuai web app)
+  /// Get my quiz attempts with optional module filter (cache-first)
+  /// Get quiz attempts — always fetch from API, cache as offline fallback
   Future<Map<String, dynamic>> getMyQuizAttempts({
     String? status,
-    String? moduleId, // Add module_id filter
+    String? moduleId,
     int page = 1,
     int limit = 10,
   }) async {
+    final cacheKey = 'quiz_attempts_${moduleId ?? 'all'}_p${page}_l$limit';
+
     try {
       final token = await _storageService.getAccessToken();
       if (token == null) {
-        return {'success': false, 'message': 'Token tidak ditemukan'};
+        return {'success': false, 'message': 'Sesi Anda telah berakhir. Silakan login kembali.'};
       }
 
       var url =
@@ -266,43 +302,45 @@ class QuizService {
         url += '&status=$status';
       }
       if (moduleId != null) {
-        url += '&module_id=$moduleId'; // Add module_id to query params
+        url += '&module_id=$moduleId';
       }
 
-      final response = await http.get(
-        Uri.parse(url),
-        headers: {
-          'Authorization': 'Bearer $token',
-          'Content-Type': 'application/json',
-        },
-      );
+      final response = await _getWithRetry(Uri.parse(url), {
+        'Authorization': 'Bearer $token',
+        'Content-Type': 'application/json',
+      });
 
       final data = json.decode(response.body);
 
-      // Handle 404 sebagai normal (user belum pernah quiz)
       if (response.statusCode == 404) {
-        return {
-          'success': true, // Treat as success with empty data
+        final result = {
+          'success': true,
           'data': {'attempts': [], 'total': 0},
-          'message': 'No quiz history found',
+          'message': 'Belum ada riwayat kuis',
         };
+        await _cache.set(cacheKey, result);
+        return result;
       }
 
       if (response.statusCode == 200) {
-        return {
+        final result = {
           'success': true,
           'data': data['data'],
           'message': data['message'],
         };
+        await _cache.set(cacheKey, result);
+        return result;
       } else {
         return {
           'success': false,
-          'message': data['message'] ?? 'Failed to fetch attempts',
+          'message': data['message'] ?? 'Gagal memuat riwayat kuis',
           'data': null,
         };
       }
     } catch (e) {
-      return {'success': false, 'message': 'Error: $e', 'data': null};
+      final stale = await _cache.get(cacheKey);
+      if (stale != null) return stale;
+      return {'success': false, 'message': _friendlyError(e), 'data': null};
     }
   }
 }
