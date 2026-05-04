@@ -146,6 +146,85 @@ class ProgressService {
     }
   }
 
+  /// GET /progress/sub-materis/:id — poin_details include scroll_completed & is_completed
+  Future<Map<String, dynamic>> getSubMateriProgress(
+    String subMateriId, {
+    bool forceRefresh = false,
+  }) async {
+    final key = 'progress_sub_materi_$subMateriId';
+    if (!forceRefresh) {
+      final cached = await _cache.get(key);
+      if (cached != null) return cached;
+    }
+
+    try {
+      final token = await _storageService.getAccessToken();
+      if (token == null) {
+        return {
+          'success': false,
+          'error': 'Sesi Anda telah berakhir. Silakan login kembali.',
+        };
+      }
+
+      final url = Uri.parse(
+        '${ApiConfig.baseUrl}/progress/sub-materis/$subMateriId',
+      );
+      final response = await http.get(
+        url,
+        headers: {
+          'Authorization': 'Bearer $token',
+          'Content-Type': 'application/json',
+        },
+      );
+
+      if (response.statusCode == 200) {
+        final data = json.decode(response.body);
+        final result = {'success': true, 'data': data['data']};
+        await _cache.set(key, result);
+        return result;
+      }
+      final stale = await _cache.get(key);
+      if (stale != null) return stale;
+      return {'success': false, 'error': 'Gagal mengambil progress sub-materi'};
+    } catch (e) {
+      return {'success': false, 'error': friendlyErrorMessage(e)};
+    }
+  }
+
+  /// Mark poin reading finished (scroll) — does not set is_completed (quiz still gates that).
+  Future<Map<String, dynamic>> markPoinScrollCompleted(String poinId) async {
+    try {
+      final token = await _storageService.getAccessToken();
+      if (token == null) {
+        return {
+          'success': false,
+          'error': 'Sesi Anda telah berakhir. Silakan login kembali.',
+        };
+      }
+
+      final url = Uri.parse(
+        '${ApiConfig.baseUrl}/progress/poins/$poinId/scroll-complete',
+      );
+      final response = await http.post(
+        url,
+        headers: {
+          'Authorization': 'Bearer $token',
+          'Content-Type': 'application/json',
+        },
+      );
+
+      if (response.statusCode == 200 || response.statusCode == 201) {
+        final data = json.decode(response.body);
+        await _cache.removeByPrefix('progress_');
+        await _cache.removeByPrefix('completed_poins_');
+        return {'success': true, 'data': data['data']};
+      }
+      return {'success': false, 'error': 'Gagal menyimpan progress bacaan'};
+    } catch (e) {
+      return {'success': false, 'error': friendlyErrorMessage(e)};
+    }
+  }
+
   /// Mark poin as completed — invalidates relevant caches
   Future<Map<String, dynamic>> markPoinCompleted(String poinId) async {
     try {

@@ -37,7 +37,7 @@ class _MaterialPoinDetailScreenState extends State<MaterialPoinDetailScreen> {
   final ProgressService _progressService = ProgressService();
   final QuizService _quizService = QuizService();
   final ScrollController _scrollController = ScrollController();
-  late PageController _pageController;
+  PageController _pageController = PageController();
 
   bool _isLoading = true;
   bool _hasScrolledToBottom = false;
@@ -144,10 +144,10 @@ class _MaterialPoinDetailScreenState extends State<MaterialPoinDetailScreen> {
     });
 
     await _progressService.savePoinReadLocally(_materialId, poinId);
-    await _progressService.markPoinCompleted(poinId);
+    await _progressService.markPoinScrollCompleted(poinId);
 
     debugPrint(
-      '📖 [MATERIAL] Poin $poinId auto-marked as read (scroll to bottom)',
+      '📖 [MATERIAL] Poin $poinId scroll-complete saved (scroll to bottom)',
     );
   }
 
@@ -155,8 +155,7 @@ class _MaterialPoinDetailScreenState extends State<MaterialPoinDetailScreen> {
     setState(() => _isLoading = true);
 
     try {
-      // Load completed poins from API first
-      await _loadCompletedPoins();
+      final readIds = await _fetchReadPoinIdsFromApi();
 
       // Check cache first
       if (MaterialPoinDetailScreen._materialCache.containsKey(_materialId)) {
@@ -165,7 +164,8 @@ class _MaterialPoinDetailScreenState extends State<MaterialPoinDetailScreen> {
         final poinList = cachedData['poin_details'] as List;
 
         // Determine start position based on last accessed and completed status
-        final startPosition = await _determineStartPosition(poinList);
+        final startPosition = await _determineStartPosition(poinList, readIds);
+        final indicesDone = _indicesForReadPoins(poinList, readIds);
 
         setState(() {
           _materialData = cachedData;
@@ -173,10 +173,13 @@ class _MaterialPoinDetailScreenState extends State<MaterialPoinDetailScreen> {
           _currentPoinIndex = startPosition['poinIndex'] as int;
           _initialPoinIndex = startPosition['poinIndex'] as int;
           _shouldShowQuizDirectly = startPosition['shouldShowQuiz'] as bool;
+          _completedPoinIds = readIds;
+          _completedPoins = indicesDone;
           _isLoading = false;
         });
 
         // Initialize PageController with correct initial page
+        _pageController.dispose();
         _pageController = PageController(
           initialPage: startPosition['poinIndex'] as int,
         );
@@ -209,8 +212,8 @@ class _MaterialPoinDetailScreenState extends State<MaterialPoinDetailScreen> {
           'poin_details': poinList,
         };
 
-        // Determine start position based on last accessed and completed status
-        final startPosition = await _determineStartPosition(poinList);
+        final startPosition = await _determineStartPosition(poinList, readIds);
+        final indicesDone = _indicesForReadPoins(poinList, readIds);
 
         setState(() {
           _materialData = data;
@@ -218,10 +221,12 @@ class _MaterialPoinDetailScreenState extends State<MaterialPoinDetailScreen> {
           _currentPoinIndex = startPosition['poinIndex'] as int;
           _initialPoinIndex = startPosition['poinIndex'] as int;
           _shouldShowQuizDirectly = startPosition['shouldShowQuiz'] as bool;
+          _completedPoinIds = readIds;
+          _completedPoins = indicesDone;
           _isLoading = false;
         });
 
-        // Initialize PageController with correct initial page
+        _pageController.dispose();
         _pageController = PageController(
           initialPage: startPosition['poinIndex'] as int,
         );
@@ -236,88 +241,98 @@ class _MaterialPoinDetailScreenState extends State<MaterialPoinDetailScreen> {
         }
       } else {
         setState(() => _isLoading = false);
-        _pageController = PageController();
       }
     } catch (e) {
       setState(() => _isLoading = false);
-      _pageController = PageController();
     }
   }
 
-  /// Load completed poins from API
-  Future<void> _loadCompletedPoins() async {
+  /// Poin IDs marked read (scroll) or completed (quiz) from GET /progress/sub-materis/:id
+  Future<Set<String>> _fetchReadPoinIdsFromApi() async {
     try {
-      final result = await _progressService.getCompletedPoins(_materialId);
-      if (result['success']) {
-        final completedPoins = result['data'] as List? ?? [];
-        setState(() {
-          _completedPoinIds =
-              completedPoins
-                  .map((p) => p['poin_id']?.toString() ?? '')
-                  .where((id) => id.isNotEmpty)
-                  .toSet();
-        });
-
-        debugPrint(
-          '✅ [MATERIAL] Loaded ${_completedPoinIds.length} completed poins',
-        );
+      final result = await _progressService.getSubMateriProgress(
+        _materialId,
+        forceRefresh: true,
+      );
+      if (result['success'] != true) return {};
+      final data = result['data'] as Map<String, dynamic>?;
+      final details = data?['poin_details'] as List? ?? [];
+      final ids = <String>{};
+      for (final raw in details) {
+        final p = raw as Map<String, dynamic>;
+        final id = p['id']?.toString() ?? '';
+        if (id.isEmpty) continue;
+        final scroll = p['scroll_completed'] == true;
+        final done = p['is_completed'] == true;
+        if (scroll || done) ids.add(id);
       }
+      debugPrint('✅ [MATERIAL] Loaded ${ids.length} read/complete poin ids');
+      return ids;
     } catch (e) {
-      debugPrint('⚠️ [MATERIAL] Failed to load completed poins: $e');
+      debugPrint('⚠️ [MATERIAL] Failed to load sub-materi progress: $e');
+      return {};
     }
   }
 
-  /// Determine start position berdasarkan last accessed dan completed status
-  /// Returns: {poinIndex: int, shouldShowQuiz: bool}
-  Future<Map<String, dynamic>> _determineStartPosition(List poinList) async {
-    // Default start from beginning
+  Set<int> _indicesForReadPoins(List poinList, Set<String> readIds) {
+    final out = <int>{};
+    for (var i = 0; i < poinList.length; i++) {
+      final id = (poinList[i] as Map)['id']?.toString() ?? '';
+      if (readIds.contains(id)) out.add(i);
+    }
+    return out;
+  }
+
+  /// Resume first unread poin; if all read, use last poin + lastAccessed / quiz flags.
+  Future<Map<String, dynamic>> _determineStartPosition(
+    List poinList,
+    Set<String> readIds,
+  ) async {
     int startIndex = 0;
     bool shouldShowQuiz = false;
 
+    if (poinList.isEmpty) {
+      return {'poinIndex': 0, 'shouldShowQuiz': false};
+    }
+
     try {
-      // Get last accessed info
+      for (var i = 0; i < poinList.length; i++) {
+        final id = (poinList[i] as Map)['id']?.toString() ?? '';
+        if (!readIds.contains(id)) {
+          debugPrint('📖 [MATERIAL] Resume first unread poin index: $i');
+          return {'poinIndex': i, 'shouldShowQuiz': false};
+        }
+      }
+
+      startIndex = poinList.length - 1;
+
       final lastAccessed = await _progressService.getLastAccessedPoin(
         _materialId,
       );
 
       if (lastAccessed != null) {
-        final savedPoinIndex = lastAccessed['poinIndex'] as int? ?? 0;
+        final savedPoinIndex = lastAccessed['poinIndex'] as int? ?? startIndex;
         final savedShouldShowQuiz =
             lastAccessed['shouldShowQuiz'] as bool? ?? false;
         final isQuizCompleted =
             lastAccessed['isQuizCompleted'] as bool? ?? false;
 
         debugPrint(
-          '📍 [MATERIAL] Last accessed: poinIndex=$savedPoinIndex, showQuiz=$savedShouldShowQuiz, quizDone=$isQuizCompleted',
+          '📍 [MATERIAL] All poin read; last accessed: idx=$savedPoinIndex, showQuiz=$savedShouldShowQuiz, quizDone=$isQuizCompleted',
         );
 
-        // Jika quiz sudah completed, mulai dari poin berikutnya (atau poin terakhir jika tidak ada)
         if (isQuizCompleted) {
           startIndex = (savedPoinIndex + 1).clamp(0, poinList.length - 1);
           shouldShowQuiz = false;
-          debugPrint(
-            '✅ [MATERIAL] Quiz completed, start from next poin: $startIndex',
-          );
-        }
-        // Jika harus tampilkan quiz (sudah baca semua poin tapi belum quiz)
-        else if (savedShouldShowQuiz) {
-          startIndex = savedPoinIndex;
+        } else if (savedShouldShowQuiz) {
+          startIndex = savedPoinIndex.clamp(0, poinList.length - 1);
           shouldShowQuiz = true;
-          debugPrint('📝 [MATERIAL] Should show quiz at poin: $startIndex');
-        }
-        // Normal case: lanjutkan dari poin terakhir
-        else {
-          startIndex = savedPoinIndex;
+        } else {
+          startIndex = savedPoinIndex.clamp(0, poinList.length - 1);
           shouldShowQuiz = false;
-          debugPrint('📖 [MATERIAL] Continue from poin: $startIndex');
-        }
-
-        // Validate index
-        if (startIndex >= poinList.length) {
-          startIndex = poinList.length - 1;
         }
       } else {
-        debugPrint('🆕 [MATERIAL] No last accessed, start from beginning');
+        debugPrint('🆕 [MATERIAL] All poin read, no last accessed');
       }
     } catch (e) {
       debugPrint('⚠️ [MATERIAL] Error determining start position: $e');
@@ -345,12 +360,12 @@ class _MaterialPoinDetailScreenState extends State<MaterialPoinDetailScreen> {
     // Call API (skip if already marked by scroll-to-bottom auto-read)
     if (poinId.isNotEmpty && !alreadyMarked) {
       await _progressService.savePoinReadLocally(_materialId, poinId);
-      final result = await _progressService.markPoinCompleted(poinId);
+      final result = await _progressService.markPoinScrollCompleted(poinId);
       if (result['success']) {
-        debugPrint('✅ [MATERIAL] Poin $poinId marked as completed');
+        debugPrint('✅ [MATERIAL] Poin $poinId scroll-complete saved');
       } else {
         debugPrint(
-          '⚠️ [MATERIAL] Failed to mark poin as completed: ${result['error']}',
+          '⚠️ [MATERIAL] Failed to save scroll progress: ${result['error']}',
         );
       }
     }
