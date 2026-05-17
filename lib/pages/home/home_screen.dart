@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_svg/flutter_svg.dart';
+import 'package:url_launcher/url_launcher.dart';
 import '../../theme/theme.dart';
 import '../../layouts/app_layout.dart';
 import '../../services/storage_service.dart';
@@ -256,7 +257,10 @@ class _HomeScreenState extends State<HomeScreen> {
                             decoration: BoxDecoration(
                               color: Colors.red,
                               borderRadius: BorderRadius.circular(10),
-                              border: Border.all(color: AppColors.white, width: 1.5),
+                              border: Border.all(
+                                color: AppColors.white,
+                                width: 1.5,
+                              ),
                             ),
                             constraints: const BoxConstraints(
                               minWidth: 18,
@@ -1155,8 +1159,16 @@ class _HomeScreenState extends State<HomeScreen> {
                   children: [
                     Expanded(
                       child: OutlinedButton.icon(
-                        onPressed: () {
-                          'https://ayosehat.kemkes.go.id/integrasi-layanan-primer-melalui-posyandu';
+                        onPressed: () async {
+                          final url = Uri.parse(
+                            'https://ayosehat.kemkes.go.id/integrasi-layanan-primer-melalui-posyandu',
+                          );
+                          if (await canLaunchUrl(url)) {
+                            await launchUrl(
+                              url,
+                              mode: LaunchMode.externalApplication,
+                            );
+                          }
                         },
                         icon: Icon(Icons.open_in_new, size: 18),
                         label: const Text('Selengkapnya di AyoSehat'),
@@ -1174,8 +1186,14 @@ class _HomeScreenState extends State<HomeScreen> {
                 ),
                 const SizedBox(height: 10),
                 OutlinedButton.icon(
-                  onPressed: () {
-                    // TODO: Show reference document
+                  onPressed: () async {
+                    final url = Uri.parse('https://posyandu.kemkes.go.id');
+                    if (await canLaunchUrl(url)) {
+                      await launchUrl(
+                        url,
+                        mode: LaunchMode.externalApplication,
+                      );
+                    }
                   },
                   icon: Icon(Icons.article_outlined, size: 18),
                   label: const Text('Referensi Kementerian Kesehatan RI'),
